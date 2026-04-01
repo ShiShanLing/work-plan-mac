@@ -4,6 +4,7 @@
   "description": "本地脚本入口（类 Angular npm scripts）；无需安装依赖即可使用 npm run。",
   "scripts": {
     "release": "bash scripts/release.sh",
+    "release:local": "bash scripts/release-local-gh.sh",
     "core:test": "cd MiniToolsCore && swift test",
     "mac:build": "xcodebuild -scheme MiniTools-SwiftUI -project MiniTools-SwiftUI.xcodeproj -destination 'platform=macOS' build"
   }

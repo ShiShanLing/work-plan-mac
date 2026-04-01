@@ -1,12 +1,23 @@
 # 在推送版本标签（如 v1.0.5）时构建 Release .app，打成 zip 并挂到 GitHub Release。
 #
 # 必要条件（仓库 Settings → Secrets and variables → Actions）：
-#   APPLE_TEAM_ID            : 10 位 Team ID（与 Xcode Signing 里一致）
-#   BUILD_CERTIFICATE_BASE64 : 导出 .p12 后的 Base64（不要含换行，或脚本会去掉空白）
-#   P12_PASSWORD             : 导出 .p12 时设的密码
-#   KEYCHAIN_PASSWORD        : 任意强密码，仅用于 CI 临时钥匙串
+#   APPLE_TEAM_ID                      : 10 位 Team ID（与 Xcode Signing 里一致）
+#   BUILD_CERTIFICATE_BASE64           : 导出 .p12 后的 Base64（不要含换行，或脚本会去掉空白）
+#   P12_PASSWORD                       : 导出 .p12 时设的密码
+#   KEYCHAIN_PASSWORD                  : 任意强密码，仅用于 CI 临时钥匙串
+#   APP_STORE_CONNECT_API_ISSUER_ID    : App Store Connect → 用户和访问 → 集成 → 密钥 → 颁发者 ID
+#   APP_STORE_CONNECT_API_KEY_ID       : 同上，密钥 ID
+#   APP_STORE_CONNECT_API_KEY_P8_BASE64: 下载的 AuthKey_xxx.p8 全文做 Base64（便于贴 Secret）
+#
+# 说明：仅有 .p12 不能让 xcodebuild 在 CI 上自动生成/拉取「Mac App Development」描述文件；
+# 必须 -allowProvisioningUpdates + 上述 API 密钥（需已加入 Apple Developer Program，个人免费团队
+# 通常无法在 App Store Connect 创建 API 密钥，若无密钥请改成本地打包或自行导出 .mobileprovision 走手动签名）。
 #
 # 使用：git tag v1.0.5 && git push origin v1.0.5
+#
+# 默认关闭云端 Job：仅用本地 scripts/release-local-gh.sh 发版时，不要设置 USE_CLOUD_RELEASE。
+# 需在 GitHub Actions 云机构建时：仓库 Settings → Variables → Actions → 新建
+# USE_CLOUD_RELEASE = true（并配齐 Secrets）。
 
 name: Release (macOS .app)
 
@@ -20,6 +31,7 @@ permissions:
 
 jobs:
   build-and-release:
+    if: ${{ vars.USE_CLOUD_RELEASE == 'true' }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -69,12 +81,23 @@ jobs:
       - name: Build Release
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
         run: |
           set -euo pipefail
           if [ -z "${APPLE_TEAM_ID:-}" ]; then
             echo "::error::请配置 secret APPLE_TEAM_ID"
             exit 1
           fi
+          if [ -z "${APP_STORE_CONNECT_API_ISSUER_ID:-}" ] || [ -z "${APP_STORE_CONNECT_API_KEY_ID:-}" ] || [ -z "${APP_STORE_CONNECT_API_KEY_P8_BASE64:-}" ]; then
+            echo "::error::缺少 App Store Connect API 密钥（APP_STORE_CONNECT_API_ISSUER_ID / APP_STORE_CONNECT_API_KEY_ID / APP_STORE_CONNECT_API_KEY_P8_BASE64）。"
+            echo "::error::否则 xcodebuild 无法在 CI 上拉取 Mac App Development 描述文件。见 workflow 文件顶注释。"
+            exit 1
+          fi
+          P8_B64="$(printf '%s' "$APP_STORE_CONNECT_API_KEY_P8_BASE64" | tr -d ' \t\r\n')"
+          printf '%s' "$P8_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
           set -o pipefail
           xcodebuild \
             -scheme MiniTools-SwiftUI \
@@ -82,6 +105,10 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -derivedDataPath DerivedData \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
             build 2>&1 | tee build.log

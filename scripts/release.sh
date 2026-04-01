@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# 发布到 GitHub：推送当前分支 + 打版本标签（触发 Actions 构建 Release 安装包）。
+# 发布到 GitHub：推送当前分支 + 打版本标签（仅当仓库变量 USE_CLOUD_RELEASE=true 时才会跑云端构建）。
+#
+# 更推荐（本机构建 + 自动上传 Release）：npm run release:local → scripts/release-local-gh.sh
 #
 # 用法：
 #   1. 只改下面 「可配置」 区域的 VERSION、COMMIT_MSG、BRANCH
@@ -8,7 +10,11 @@
 #        bash scripts/release.sh
 #        ./scripts/release.sh
 #
-# 前提：已配置远程 origin；GitHub 上已设好签名相关 Secrets（见 .github/workflows/release-macos.yml 注释）。
+# 前提：已配置远程 origin。
+# CI 发版：仓库需配置 workflow 注释中的 Secrets（含 App Store Connect API，见 release-macos.yml）。
+# 若无 API 密钥 / CI 签名失败：勿依赖「推 tag 自动出包」；请在本地 Xcode 或 xcodebuild 打好 .app 后，
+#   用 GitHub 网页在对应 Release 里上传 zip，或本机已登录 gh 时执行：
+#   gh release upload "$VERSION" ./MiniTools-SwiftUI-"$VERSION".zip --clobber
 
 set -euo pipefail
 
