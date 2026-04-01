@@ -46,46 +46,83 @@ enum LocalJSONStore {
             } else if !UserDefaults.standard.bool(forKey: "minitools_migrated_legacy_to_group") {
                 migrateFromLegacyIfNeeded(into: dir)
             }
-            #if DEBUG
-            migrateOldMiniToolsDataGroupFolderToDebugIfNeeded(groupRoot: groupRoot, debugDir: dir)
-            #endif
+            /// Xcode Debug 曾写入 `MiniToolsData-debug`，与安装版/小组件读的 `MiniToolsData` 分离；迁回避免「代码里看得到、桌面打开是空的」。
+            consolidateFormerDebugSubfolderIntoCanonical(groupRoot: groupRoot, canonicalDir: dir)
+            /// 小组件只能读 App Group，读不到主应用 Application Support；若此处曾是占位 `[]` 而 Support 里仍有数据，必须拷回。
+            repairGroupJSONPlaceholdersFromLegacyIfNeeded(groupDir: dir)
             return dir
         }
         return legacyDirectoryURL
     }
 
-    #if DEBUG
-    /// 旧版共用 App Group 下 `MiniToolsData`；Debug 现改用 `MiniToolsData-debug`，首次启动时复制旧目录，避免本地任务“凭空消失”。
-    private static func migrateOldMiniToolsDataGroupFolderToDebugIfNeeded(groupRoot: URL, debugDir: URL) {
-        let key = "minitools_v2_copied_group_minitoolsdata_to_debug"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        let oldShared = groupRoot.appending(path: "MiniToolsData", directoryHint: .isDirectory)
-        guard FileManager.default.fileExists(atPath: oldShared.path) else {
-            UserDefaults.standard.set(true, forKey: key)
-            return
-        }
-        let debugHasAny = fileNames.contains { FileManager.default.fileExists(atPath: debugDir.appending(path: $0).path) }
-        if debugHasAny {
-            UserDefaults.standard.set(true, forKey: key)
-            return
-        }
-        let oldHasAny = fileNames.contains { FileManager.default.fileExists(atPath: oldShared.appending(path: $0).path) }
-        guard oldHasAny else {
-            UserDefaults.standard.set(true, forKey: key)
-            return
-        }
-        if !FileManager.default.fileExists(atPath: debugDir.path) {
-            try? FileManager.default.createDirectory(at: debugDir, withIntermediateDirectories: true)
+    /// 每进程最多合并一次；避免依赖「仅首次启动」标志导致漏迁。
+    private static var didConsolidateFormerDebugSubfolder = false
+
+    /// 将历史目录 `MiniToolsData-debug` 中的非空 JSON 合并进 canonical（仅当对应 canonical 文件缺失或为字面量 `[]` 时复制）。
+    private static func consolidateFormerDebugSubfolderIntoCanonical(groupRoot: URL, canonicalDir: URL) {
+        guard !didConsolidateFormerDebugSubfolder else { return }
+        didConsolidateFormerDebugSubfolder = true
+
+        let debugDir = groupRoot.appending(path: "MiniToolsData-debug", directoryHint: .isDirectory)
+        guard FileManager.default.fileExists(atPath: debugDir.path) else { return }
+
+        if !FileManager.default.fileExists(atPath: canonicalDir.path) {
+            try? FileManager.default.createDirectory(at: canonicalDir, withIntermediateDirectories: true)
         }
         for name in fileNames {
-            let src = oldShared.appending(path: name, directoryHint: .notDirectory)
-            let dst = debugDir.appending(path: name, directoryHint: .notDirectory)
-            guard FileManager.default.fileExists(atPath: src.path), !FileManager.default.fileExists(atPath: dst.path) else { continue }
-            try? FileManager.default.copyItem(at: src, to: dst)
+            let cURL = canonicalDir.appending(path: name, directoryHint: .notDirectory)
+            let dURL = debugDir.appending(path: name, directoryHint: .notDirectory)
+            guard FileManager.default.fileExists(atPath: dURL.path) else { continue }
+            guard let debugData = try? Data(contentsOf: dURL), !debugData.isEmpty else { continue }
+            guard !isJSONArrayOnDiskEmpty(debugData) else { continue }
+
+            let canonExists = FileManager.default.fileExists(atPath: cURL.path)
+            let canonData = canonExists ? (try? Data(contentsOf: cURL)) ?? Data() : Data()
+            let canonEmpty = !canonExists || canonData.isEmpty || isJSONArrayOnDiskEmpty(canonData)
+            if canonEmpty {
+                try? debugData.write(to: cURL, options: .atomic)
+            }
         }
-        UserDefaults.standard.set(true, forKey: key)
     }
-    #endif
+
+    private static func isJSONArrayOnDiskEmpty(_ data: Data) -> Bool {
+        guard let s = String(data: data, encoding: .utf8) else { return true }
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty || t == "[]"
+    }
+
+    /// 每进程一次：把 Application Support 里的非空 JSON 写回 Group（当 Group 内缺失或仅为 `[]`）。小组件扩展看不到主应用容器下的 Support。
+    private static var didRepairGroupPlaceholdersFromLegacy = false
+
+    private static func repairGroupJSONPlaceholdersFromLegacyIfNeeded(groupDir: URL) {
+        guard !didRepairGroupPlaceholdersFromLegacy else { return }
+        didRepairGroupPlaceholdersFromLegacy = true
+        let legacy = legacyDirectoryURL
+        var wrote = false
+        for name in fileNames {
+            let dest = groupDir.appending(path: name, directoryHint: .notDirectory)
+            let src = legacy.appending(path: name, directoryHint: .notDirectory)
+            guard FileManager.default.fileExists(atPath: src.path) else { continue }
+            guard let srcData = try? Data(contentsOf: src), !isJSONArrayOnDiskEmpty(srcData) else { continue }
+            let destNeedsRepair: Bool
+            if !FileManager.default.fileExists(atPath: dest.path) {
+                destNeedsRepair = true
+            } else if let d = try? Data(contentsOf: dest), isJSONArrayOnDiskEmpty(d) {
+                destNeedsRepair = true
+            } else {
+                destNeedsRepair = false
+            }
+            guard destNeedsRepair else { continue }
+            try? srcData.write(to: dest, options: .atomic)
+            wrote = true
+        }
+        if wrote {
+            AppLog.store.debug("已从 Application Support 补写 App Group JSON（消除小组件与主应用数据源不一致）")
+            DispatchQueue.main.async {
+                MiniToolsWidgetReloader.reloadAll()
+            }
+        }
+    }
 
     /// 首次使用共享目录时，从旧 Application Support 复制已有 JSON。
     private static func migrateFromLegacyIfNeeded(into groupDir: URL) {
@@ -98,13 +135,22 @@ enum LocalJSONStore {
             if FileManager.default.fileExists(atPath: src.path) {
                 legacyHadAnyFile = true
             }
-            guard !FileManager.default.fileExists(atPath: dest.path) else { continue }
             guard FileManager.default.fileExists(atPath: src.path) else { continue }
+            guard let srcData = try? Data(contentsOf: src), !isJSONArrayOnDiskEmpty(srcData) else { continue }
+            let needCopy: Bool
+            if !FileManager.default.fileExists(atPath: dest.path) {
+                needCopy = true
+            } else if let d = try? Data(contentsOf: dest), isJSONArrayOnDiskEmpty(d) {
+                needCopy = true
+            } else {
+                needCopy = false
+            }
+            guard needCopy else { continue }
             do {
-                try FileManager.default.copyItem(at: src, to: dest)
+                try srcData.write(to: dest, options: .atomic)
                 copied = true
             } catch {
-                // 复制失败：不标记「已迁移」，下次启动再试，避免以为已迁完。
+                // 写入失败：不标记「已迁移」，下次启动再试。
             }
         }
 

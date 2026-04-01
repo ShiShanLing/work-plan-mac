@@ -56,6 +56,11 @@ else
   git commit -m "$COMMIT_MSG"
 fi
 
+# 本仓库固定用此 DerivedData；产物形如：
+#   build/ReleaseDerived/Build/Products/Release/工作计划.app
+# 小组件 / 桌面用 URL 打开应用时，系统会启动「当前已注册的」那一份 .app：若你曾从该 Release 路径运行或
+# 装过这一份，而平时用 ⌘R 跑的是 Xcode 默认 Debug 产物，则会出现两套二进制（现已统一读写
+# Group Containers/.../MiniToolsData，但仍有必要知道打开的是哪一份构建）。
 DERIVED="$ROOT/build/ReleaseDerived"
 rm -rf "$DERIVED"
 mkdir -p "$ROOT/build"

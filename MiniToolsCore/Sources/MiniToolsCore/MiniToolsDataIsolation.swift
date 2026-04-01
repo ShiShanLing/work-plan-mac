@@ -5,13 +5,8 @@
 
 import Foundation
 
-/// App Group 内存放 JSON 的目录名：Debug 与 Release 分开，避免本机 Xcode 运行读写到与正式安装同一套文件。
+/// App Group 内统一使用同一子目录名，保证 **Xcode Debug 运行**、**从桌面/启动台打开的安装版**、**小组件扩展**读写同一套 JSON。
+/// （历史上 Debug 曾使用 `MiniToolsData-debug`，已在 `LocalJSONStore` 做一次性迁回 `MiniToolsData`。）
 public enum MiniToolsDataIsolation {
-    public static var appGroupJSONDirectoryName: String {
-        #if DEBUG
-        "MiniToolsData-debug"
-        #else
-        "MiniToolsData"
-        #endif
-    }
+    public static let appGroupJSONDirectoryName = "MiniToolsData"
 }

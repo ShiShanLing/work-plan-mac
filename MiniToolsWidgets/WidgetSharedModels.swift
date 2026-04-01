@@ -400,10 +400,24 @@ enum TodayWidgetIO {
         return e
     }()
 
-    /// 与 `LocalJSONStore` 一致：优先 App Group 下 `MiniToolsDataIsolation` 子目录，否则回退 `Application Support/MiniTools-SwiftUI`。
+    /// 与主应用 `LocalJSONStore` 使用同一 App Group；极少数环境下 `containerURL` 对扩展返回 nil，再尝试固定路径。
+    private static func appGroupContainerRoot() -> URL? {
+        if let u = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: WidgetAppGroup.identifier) {
+            return u
+        }
+        #if os(macOS)
+        let path = NSHomeDirectory() + "/Library/Group Containers/" + WidgetAppGroup.identifier
+        if FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        #endif
+        return nil
+    }
+
+    /// 与 `LocalJSONStore` 一致：优先 App Group 下 `MiniToolsData` 子目录，否则回退扩展自身 Sandbox 下 `Application Support/MiniTools-SwiftUI`（通常为空，仅兜底）。
     private static func jsonURLs(fileName: String) -> [URL] {
         var urls: [URL] = []
-        if let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: WidgetAppGroup.identifier) {
+        if let root = appGroupContainerRoot() {
             let dir = root.appending(path: MiniToolsDataIsolation.appGroupJSONDirectoryName, directoryHint: .isDirectory)
             urls.append(dir.appending(path: fileName, directoryHint: .notDirectory))
         }
@@ -428,10 +442,9 @@ enum TodayWidgetIO {
     }
 
     static var dataDirectory: URL? {
-        guard let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: WidgetAppGroup.identifier)
-        else { return nil }
+        guard let root = appGroupContainerRoot() else { return nil }
         let dir = root.appending(path: MiniToolsDataIsolation.appGroupJSONDirectoryName, directoryHint: .isDirectory)
-        if !FileManager.default.fileExists(atPath: dir.path()) {
+        if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         return dir
