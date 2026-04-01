@@ -1,18 +1,12 @@
 # 在推送版本标签（如 v1.0.5）时构建 Release .app，打成 zip 并挂到 GitHub Release。
 #
 # 必要条件（仓库 Settings → Secrets and variables → Actions）：
-#   APPLE_TEAM_ID            : 10 位 Team ID（与 Xcode Signing 里一致，如 H2F8HK67WK）
-#   BUILD_CERTIFICATE_BASE64 : 从「钥匙串访问」导出的 .p12（Apple Development 或 Developer ID Application）再做 base64
+#   APPLE_TEAM_ID            : 10 位 Team ID（与 Xcode Signing 里一致）
+#   BUILD_CERTIFICATE_BASE64 : 导出 .p12 后的 Base64（不要含换行，或脚本会去掉空白）
 #   P12_PASSWORD             : 导出 .p12 时设的密码
 #   KEYCHAIN_PASSWORD        : 任意强密码，仅用于 CI 临时钥匙串
 #
-# 导出 p12：钥匙串访问 → 选中「Apple Development: xxx」证书 → 导出为 .p12
-# 生成 Base64（本机终端）：
-#   base64 -i YourCert.p12 | pbcopy
-# 将剪贴板内容粘贴到 secret BUILD_CERTIFICATE_BASE64
-#
-# 使用：
-#   git tag v1.0.5 && git push origin v1.0.5
+# 使用：git tag v1.0.5 && git push origin v1.0.5
 
 name: Release (macOS .app)
 
@@ -31,6 +25,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Environment (Xcode / 路径便于对照日志)
+        run: |
+          xcodebuild -version
+          sw_vers
+
       - name: Import code signing certificate
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
@@ -39,21 +38,30 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${BUILD_CERTIFICATE_BASE64:-}" ] || [ -z "${P12_PASSWORD:-}" ] || [ -z "${KEYCHAIN_PASSWORD:-}" ]; then
-            echo "::error::缺少签名用 Secrets。请配置 BUILD_CERTIFICATE_BASE64、P12_PASSWORD、KEYCHAIN_PASSWORD、APPLE_TEAM_ID。"
-            echo "::error::原因：App Sandbox + App Group 必须在 CI 上使用证书签名才能 xcodebuild，无法用 CODE_SIGNING_REQUIRED=NO。"
+            echo "::error::缺少 BUILD_CERTIFICATE_BASE64 / P12_PASSWORD / KEYCHAIN_PASSWORD 之一。"
             exit 1
           fi
+          # GitHub Secret 粘贴时可能带首尾换行
+          B64="$(printf '%s' "$BUILD_CERTIFICATE_BASE64" | tr -d ' \t\r\n')"
           CERT_PATH="$RUNNER_TEMP/signing.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          printf '%s' "$B64" | base64 --decode > "$CERT_PATH"
+          if ! file "$CERT_PATH" | grep -q 'data\|Certificates'; then
+            echo "::warning::cert 文件类型: $(file "$CERT_PATH")"
+          fi
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" || {
+            echo "::error::导入 .p12 失败（密码错误、未含私钥、或 Base64 损坏）。请重新导出「证书 + 私钥」为 .p12 并重做 Base64。"
+            exit 1
+          }
           security list-keychain -d user -s "$KEYCHAIN_PATH"
           security default-keychain -s "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
+          echo "可用的代码签名身份（供对照 Team）:"
+          security find-identity -v -p codesigning || true
 
       - name: Resolve SPM
         run: xcodebuild -resolvePackageDependencies -scheme MiniTools-SwiftUI -project MiniTools-SwiftUI.xcodeproj -derivedDataPath DerivedData
@@ -64,9 +72,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${APPLE_TEAM_ID:-}" ]; then
-            echo "::error::请配置 secret APPLE_TEAM_ID（Xcode → Signing 中的 Team ID）"
+            echo "::error::请配置 secret APPLE_TEAM_ID"
             exit 1
           fi
+          set -o pipefail
           xcodebuild \
             -scheme MiniTools-SwiftUI \
             -project MiniTools-SwiftUI.xcodeproj \
@@ -75,9 +84,14 @@ jobs:
             -derivedDataPath DerivedData \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
-            build
-          APP="DerivedData/Build/Products/Release/MiniTools-SwiftUI.app"
-          test -d "$APP"
+            build 2>&1 | tee build.log
+          APP="$(find "$PWD/DerivedData" -name 'MiniTools-SwiftUI.app' -type d | head -1)"
+          if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+            echo "::error::未找到 MiniTools-SwiftUI.app，请查看上文 xcodebuild 与 build.log"
+            find DerivedData -name '*.app' -type d || true
+            exit 1
+          fi
+          echo "APP=$APP"
           zip_name="MiniTools-SwiftUI-${{ github.ref_name }}.zip"
           ditto -c -k --keepParent "$APP" "$zip_name"
           shasum -a 256 "$zip_name" | tee "$zip_name.sha256"
@@ -89,3 +103,5 @@ jobs:
             MiniTools-SwiftUI-${{ github.ref_name }}.zip
             MiniTools-SwiftUI-${{ github.ref_name }}.zip.sha256
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          overwrite_files: true
