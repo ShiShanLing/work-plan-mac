@@ -1,0 +1,52 @@
+# 在推送版本标签（如 v1.0.5）时构建 Release .app，打成 zip 并挂到 GitHub Release。
+# 使用方式：
+#   git tag v1.0.5
+#   git push origin v1.0.5
+#
+# 若 CI 因签名/权限失败：可在 Xcode 里用 Archive 导出后，到 Releases 页面手动上传 zip。
+
+name: Release (macOS .app)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve SPM
+        run: xcodebuild -resolvePackageDependencies -scheme MiniTools-SwiftUI -project MiniTools-SwiftUI.xcodeproj -derivedDataPath DerivedData
+
+      - name: Build Release
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -scheme MiniTools-SwiftUI \
+            -project MiniTools-SwiftUI.xcodeproj \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+          APP="DerivedData/Build/Products/Release/MiniTools-SwiftUI.app"
+          test -d "$APP"
+          zip_name="MiniTools-SwiftUI-${{ github.ref_name }}.zip"
+          ditto -c -k --keepParent "$APP" "$zip_name"
+          shasum -a 256 "$zip_name" | tee "$zip_name.sha256"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            MiniTools-SwiftUI-${{ github.ref_name }}.zip
+            MiniTools-SwiftUI-${{ github.ref_name }}.zip.sha256
+          generate_release_notes: true
