@@ -18,6 +18,12 @@ enum WidgetDeepLink {
                 URLQueryItem(name: "type", value: "onetime"),
                 URLQueryItem(name: "id", value: row.rawId),
             ]
+        } else if row.isHourly {
+            c.queryItems = [
+                URLQueryItem(name: "type", value: "hourly"),
+                URLQueryItem(name: "id", value: row.rawId),
+                URLQueryItem(name: "ymd", value: row.todayYmd),
+            ]
         } else {
             c.queryItems = [
                 URLQueryItem(name: "type", value: "recurring"),
@@ -36,6 +42,12 @@ enum WidgetDeepLink {
             c.queryItems = [
                 URLQueryItem(name: "type", value: "onetime"),
                 URLQueryItem(name: "id", value: info.rawId),
+            ]
+        } else if info.isHourly {
+            c.queryItems = [
+                URLQueryItem(name: "type", value: "hourly"),
+                URLQueryItem(name: "id", value: info.rawId),
+                URLQueryItem(name: "ymd", value: info.ymdForRecurring),
             ]
         } else {
             c.queryItems = [

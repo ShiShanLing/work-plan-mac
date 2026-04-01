@@ -2,7 +2,7 @@
 //  TasksCalendarView.swift
 //  MiniTools-SwiftUI
 //
-//  月历汇总「定时提醒」「例行任务」在每一天的分布（类似 Outlook 月视图在格子里看到事项）。
+//  月历汇总「定时提醒」「例行任务」在每一天的分布（不含「时段提醒」；类似 Outlook 月视图在格子里看到事项）。
 //
 
 import AppKit
@@ -36,7 +36,7 @@ private struct CalendarTaskRow: Identifiable {
     let title: String
     let detail: String
     var isCompleted: Bool
-    /// 一次性提醒 id 或例行任务 id
+    /// 一次性 / 例行 任务 id
     let rawId: String
     let isOneTime: Bool
 }
@@ -146,6 +146,7 @@ private enum TasksCalendarLogic {
                 isOneTime: false
             ))
         }
+
         return rows
     }
 
@@ -195,7 +196,7 @@ struct TasksCalendarView: View {
             monthChrome
             weekdayHeader
             calendarGrid
-            Text("使用上方「未完成 / 已完成」切换月历与当日列表。点击日期打开详情；未完成模式下可勾选并添加「定时提醒」（例行任务请在「例行任务」页管理）。")
+            Text("使用上方「未完成 / 已完成」切换月历与当日列表。点击日期打开详情；未完成模式下可勾选并添加「定时提醒」。例行任务在「例行任务」页管理；时段提醒不在日历中展示。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
@@ -427,7 +428,7 @@ private struct CalendarDayTasksSheet: View {
     private var emptySheetDescription: String {
         switch completionFilter {
         case .incomplete:
-            return "可添加定时提醒；例行任务需在「例行任务」中创建。"
+            return "可添加定时提醒；例行任务请在「例行任务」中创建。时段提醒仅出现在「时段提醒」页与小组件。"
         case .completed:
             return "在「未完成」模式下勾选后，完成记录会出现在这里。也可切回月历查看其它日期。"
         }
@@ -446,9 +447,10 @@ private struct CalendarDayTasksSheet: View {
     }
 
     private func dayDetailRowLiveCompleted(_ row: CalendarTaskRow, ymd: String) -> Bool {
-        row.isOneTime
-            ? (store.oneTimeReminders.first(where: { $0.id == row.rawId })?.isCompleted ?? false)
-            : (store.recurringTasks.first(where: { $0.id == row.rawId })?.isCompleted(on: ymd) ?? false)
+        if row.isOneTime {
+            return store.oneTimeReminders.first(where: { $0.id == row.rawId })?.isCompleted ?? false
+        }
+        return store.recurringTasks.first(where: { $0.id == row.rawId })?.isCompleted(on: ymd) ?? false
     }
 
     private func dayDetailRow(_ row: CalendarTaskRow, ymd: String) -> some View {
@@ -459,11 +461,7 @@ private struct CalendarDayTasksSheet: View {
                 .accessibilityHidden(true)
             Toggle(isOn: Binding(
                 get: {
-                    if row.isOneTime {
-                        store.oneTimeReminders.first(where: { $0.id == row.rawId })?.isCompleted ?? false
-                    } else {
-                        store.recurringTasks.first(where: { $0.id == row.rawId })?.isCompleted(on: ymd) ?? false
-                    }
+                    dayDetailRowLiveCompleted(row, ymd: ymd)
                 },
                 set: { v in
                     if row.isOneTime {

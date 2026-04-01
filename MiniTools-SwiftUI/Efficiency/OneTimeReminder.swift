@@ -80,9 +80,17 @@ struct OneTimeReminder: Codable, Identifiable, Equatable, Sendable {
         "onetime-\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(8))"
     }
 
+    /// 默认可提醒时刻：下一个本地 9:00（若今日 9 点已过则用明日 9:00）。
     static func `default`(calendar: Calendar = .current) -> OneTimeReminder {
-        let now = Date()
-        var fire = calendar.date(byAdding: .minute, value: 30, to: now) ?? now
+        let todayStart = calendar.startOfDay(for: Date())
+        var comps = calendar.dateComponents([.year, .month, .day], from: todayStart)
+        comps.hour = 9
+        comps.minute = 0
+        comps.second = 0
+        var fire = calendar.date(from: comps) ?? Date()
+        if fire <= Date() {
+            fire = calendar.date(byAdding: .day, value: 1, to: fire) ?? fire
+        }
         fire = roundToMinute(fire, calendar: calendar)
         let ymd = LocalCalendarDate.localYmd(fire, calendar: calendar)
         let h = calendar.component(.hour, from: fire)

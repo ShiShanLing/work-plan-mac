@@ -12,7 +12,7 @@ import OSLog
 final class EfficiencyStore {
     var oneTimeReminders: [OneTimeReminder] = []
     var recurringTasks: [RecurringTask] = []
-    var digestPrefs: DigestPrefs = .default
+    var hourlyWindowTasks: [HourlyWindowTask] = []
     private(set) var hasCompletedInitialLoad = false
 
     func loadInitial() async {
@@ -21,8 +21,9 @@ final class EfficiencyStore {
         oneTimeReminders = oneLoad.items
         let recLoad = LocalJSONStore.loadRecurringTasksDetailed()
         recurringTasks = recLoad.items
-        let digestLoad = LocalJSONStore.loadDigestPrefsDetailed()
-        digestPrefs = digestLoad.prefs
+
+        // 已移除「每日汇总提醒」；清掉旧版可能仍存在的系统通知请求。
+        NotificationScheduler.shared.cancelPending(identifiers: ["recurring.digest"])
 
         let syncedOnce = await NotificationScheduler.shared.syncAllOneTimeReminders(oneTimeReminders)
         oneTimeReminders = syncedOnce
@@ -30,30 +31,73 @@ final class EfficiencyStore {
             LocalJSONStore.saveOneTimeReminders(oneTimeReminders)
         }
 
-        var nextTasks: [RecurringTask] = []
-        for var t in recurringTasks {
-            t = await NotificationScheduler.shared.syncRecurringTask(t)
-            nextTasks.append(t)
-        }
-        recurringTasks = nextTasks
+        recurringTasks = await Self.parallelSyncRecurringTasks(recurringTasks)
         if recLoad.shouldWriteBack {
             LocalJSONStore.saveRecurringTasks(recurringTasks)
         }
 
-        if digestLoad.shouldWriteBack {
-            await NotificationScheduler.shared.syncDigest(digestPrefs)
+        let hwLoad = LocalJSONStore.loadHourlyWindowTasksDetailed()
+        hourlyWindowTasks = hwLoad.items
+        hourlyWindowTasks = await Self.parallelSyncHourlyWindowTasks(hourlyWindowTasks)
+        if hwLoad.shouldWriteBack {
+            LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
         }
+
         await NotificationScheduler.shared.refreshAuthorizationStatus()
         hasCompletedInitialLoad = true
         MiniToolsWidgetReloader.reloadAll()
     }
 
-    func saveDigest(_ prefs: DigestPrefs) async {
-        digestPrefs = prefs
-        LocalJSONStore.saveDigestPrefs(prefs)
-        await NotificationScheduler.shared.syncDigest(prefs)
-        await NotificationScheduler.shared.refreshAuthorizationStatus()
-        MiniToolsWidgetReloader.reloadAll()
+    /// 应用回到前台时续排「每 N 小时」与例行任务系统通知（单次触发队列会耗尽）。
+    func refreshRecurringAndHourlyNotifications() async {
+        let recBefore = recurringTasks
+        recurringTasks = await Self.parallelSyncRecurringTasks(recurringTasks)
+
+        let hwBefore = hourlyWindowTasks
+        hourlyWindowTasks = await Self.parallelSyncHourlyWindowTasks(hourlyWindowTasks)
+
+        if recurringTasks != recBefore {
+            LocalJSONStore.saveRecurringTasks(recurringTasks)
+        }
+        if hourlyWindowTasks != hwBefore {
+            LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+        }
+    }
+
+    private static func parallelSyncRecurringTasks(_ tasks: [RecurringTask]) async -> [RecurringTask] {
+        guard !tasks.isEmpty else { return [] }
+        return await withTaskGroup(of: (Int, RecurringTask).self, returning: [RecurringTask].self) { group in
+            for (i, t) in tasks.enumerated() {
+                let item = t
+                group.addTask {
+                    (i, await NotificationScheduler.shared.syncRecurringTask(item))
+                }
+            }
+            var buf: [(Int, RecurringTask)] = []
+            buf.reserveCapacity(tasks.count)
+            for await pair in group {
+                buf.append(pair)
+            }
+            return buf.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    private static func parallelSyncHourlyWindowTasks(_ tasks: [HourlyWindowTask]) async -> [HourlyWindowTask] {
+        guard !tasks.isEmpty else { return [] }
+        return await withTaskGroup(of: (Int, HourlyWindowTask).self, returning: [HourlyWindowTask].self) { group in
+            for (i, t) in tasks.enumerated() {
+                let item = t
+                group.addTask {
+                    (i, await NotificationScheduler.shared.syncHourlyWindowTask(item))
+                }
+            }
+            var buf: [(Int, HourlyWindowTask)] = []
+            buf.reserveCapacity(tasks.count)
+            for await pair in group {
+                buf.append(pair)
+            }
+            return buf.sorted { $0.0 < $1.0 }.map(\.1)
+        }
     }
 
     func upsertOneTimeReminder(_ reminder: OneTimeReminder) async {
@@ -125,6 +169,49 @@ final class EfficiencyStore {
         guard let idx = recurringTasks.firstIndex(where: { $0.id == taskId }) else { return }
         recurringTasks[idx].setCompleted(done, on: ymd)
         LocalJSONStore.saveRecurringTasks(recurringTasks)
+        MiniToolsWidgetReloader.reloadAll()
+    }
+
+    func upsertHourlyWindowTask(_ task: HourlyWindowTask) async {
+        var list = hourlyWindowTasks
+        let synced = await NotificationScheduler.shared.syncHourlyWindowTask(task)
+        if let idx = list.firstIndex(where: { $0.id == synced.id }) {
+            list[idx] = synced
+        } else {
+            list.append(synced)
+        }
+        hourlyWindowTasks = list.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+        await NotificationScheduler.shared.refreshAuthorizationStatus()
+        MiniToolsWidgetReloader.reloadAll()
+    }
+
+    func deleteHourlyWindowTask(id: String) {
+        if let t = hourlyWindowTasks.first(where: { $0.id == id }) {
+            NotificationScheduler.shared.cancelPending(identifiers: t.notificationIds)
+        }
+        hourlyWindowTasks.removeAll { $0.id == id }
+        LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+        MiniToolsWidgetReloader.reloadAll()
+    }
+
+    func setHourlyWindowTaskCompleted(taskId: String, ymd: String, done: Bool) {
+        guard let idx = hourlyWindowTasks.firstIndex(where: { $0.id == taskId }) else { return }
+        hourlyWindowTasks[idx].setCompleted(done, on: ymd)
+        LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+        MiniToolsWidgetReloader.reloadAll()
+    }
+
+    /// 通知上点「不再提示」：今日标为已完成、取消该任务当前待定通知并按规则续排（不再含今日未完成档位）。
+    func markHourlyWindowDoneFromNotification(taskId: String) async {
+        guard let idx = hourlyWindowTasks.firstIndex(where: { $0.id == taskId }) else { return }
+        let ymd = LocalCalendarDate.localYmd(Date())
+        hourlyWindowTasks[idx].setCompleted(true, on: ymd)
+        NotificationScheduler.shared.cancelPending(identifiers: hourlyWindowTasks[idx].notificationIds)
+        hourlyWindowTasks[idx].notificationIds = []
+        let synced = await NotificationScheduler.shared.syncHourlyWindowTask(hourlyWindowTasks[idx])
+        hourlyWindowTasks[idx] = synced
+        LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
         MiniToolsWidgetReloader.reloadAll()
     }
 }

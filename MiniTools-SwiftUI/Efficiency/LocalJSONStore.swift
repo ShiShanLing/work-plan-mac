@@ -20,7 +20,11 @@ enum LocalJSONStore {
         return d
     }()
 
-    private static let fileNames = ["one_time_reminders.json", "recurring_tasks.json", "digest_prefs.json"]
+    private static let fileNames = [
+        "one_time_reminders.json",
+        "recurring_tasks.json",
+        "hourly_window_tasks.json",
+    ]
 
     private static var legacyDirectoryURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -166,38 +170,15 @@ enum LocalJSONStore {
         save(items, to: url("recurring_tasks.json"))
     }
 
-    struct DigestLoadResult {
-        var prefs: DigestPrefs
-        var shouldWriteBack: Bool
+    static func loadHourlyWindowTasksDetailed() -> ArrayLoadResult<HourlyWindowTask> {
+        loadArrayJson(
+            fileName: "hourly_window_tasks.json",
+            decode: { try decoder.decode([HourlyWindowTask].self, from: $0) }
+        )
     }
 
-    static func loadDigestPrefs() -> DigestPrefs {
-        loadDigestPrefsDetailed().prefs
-    }
-
-    static func loadDigestPrefsDetailed() -> DigestLoadResult {
-        let u = url("digest_prefs.json")
-        if !FileManager.default.fileExists(atPath: u.path()) {
-            return DigestLoadResult(prefs: .default, shouldWriteBack: true)
-        }
-        do {
-            let data = try Data(contentsOf: u)
-            let p = try decoder.decode(DigestPrefs.self, from: data)
-            return DigestLoadResult(prefs: p, shouldWriteBack: true)
-        } catch {
-            backupCorrupt(url: u)
-            let legacyFile = legacyDirectoryURL.appending(path: "digest_prefs.json", directoryHint: .notDirectory)
-            if legacyFile.standardizedFileURL.path != u.standardizedFileURL.path,
-               let data = try? Data(contentsOf: legacyFile),
-               let p = try? decoder.decode(DigestPrefs.self, from: data) {
-                return DigestLoadResult(prefs: p, shouldWriteBack: true)
-            }
-            return DigestLoadResult(prefs: .default, shouldWriteBack: false)
-        }
-    }
-
-    static func saveDigestPrefs(_ prefs: DigestPrefs) {
-        save(prefs, to: url("digest_prefs.json"))
+    static func saveHourlyWindowTasks(_ items: [HourlyWindowTask]) {
+        save(items, to: url("hourly_window_tasks.json"))
     }
 
     private static func save<T: Encodable>(_ value: T, to url: URL) {

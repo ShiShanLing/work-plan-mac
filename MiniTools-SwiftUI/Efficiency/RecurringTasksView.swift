@@ -10,6 +10,7 @@ private enum RecurrenceUIKind: String, CaseIterable, Identifiable {
     case everyNDays
     case weekly
     case monthly
+    case yearly
 
     var id: String { rawValue }
 
@@ -19,6 +20,7 @@ private enum RecurrenceUIKind: String, CaseIterable, Identifiable {
         case .everyNDays: return "每 N 天"
         case .weekly: return "每周"
         case .monthly: return "每月"
+        case .yearly: return "每年"
         }
     }
 }
@@ -29,7 +31,6 @@ struct RecurringTasksView: View {
 
     @State private var sheetTask: RecurringTask?
     @State private var pendingDelete: RecurringTask?
-    @State private var digestAlert: String?
 
     private var todayYmd: String {
         LocalCalendarDate.localYmd(Date())
@@ -57,7 +58,7 @@ struct RecurringTasksView: View {
         store.recurringTasks.filter { task in
             guard task.isDueOn(dayDate, calendar: calendar) else { return false }
             switch task.recurrence {
-            case .daily:
+            case .daily(_):
                 guard ymd == todayYmd else { return false }
                 return !task.isCompleted(on: ymd)
             default:
@@ -73,15 +74,13 @@ struct RecurringTasksView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                digestCard
-
                 HStack {
                     Text("近日待办（按日期）")
                         .font(.headline)
                     Spacer()
                 }
 
-                Text("「每天」重复的任务只在今天分组出现；每周、每月、每 N 天会在各自到期日下列出，表头旁的数字表示当天待办条数。")
+                Text("「每天」重复的任务只在今天分组出现（勾选「跳过周末」时仅工作日到期）；每周、每月、每年、每 N 天会在各自到期日下列出，表头旁的数字表示当天待办条数。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -159,65 +158,6 @@ struct RecurringTasksView: View {
                 Text("确定删除「\(t.title.isEmpty ? "（无标题）" : t.title)」？")
             }
         }
-        .alert("已保存", isPresented: Binding(
-            get: { digestAlert != nil },
-            set: { if !$0 { digestAlert = nil } }
-        )) {
-            Button("好", role: .cancel) { digestAlert = nil }
-        } message: {
-            Text(digestAlert ?? "")
-        }
-    }
-
-    private var digestCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("每日汇总提醒")
-                .font(.headline)
-            Text("每天在固定时间由系统提醒一次，可与各任务的到点提醒同时开启。数据仅保存在本机。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Toggle("开启", isOn: Binding(
-                get: { store.digestPrefs.enabled },
-                set: { v in
-                    var p = store.digestPrefs
-                    p.enabled = v
-                    store.digestPrefs = p
-                }
-            ))
-
-            HStack {
-                Text("时间")
-                Spacer()
-                HourMinuteFields(hour: Binding(
-                    get: { store.digestPrefs.hour },
-                    set: { v in
-                        var p = store.digestPrefs
-                        p.hour = min(23, max(0, v))
-                        store.digestPrefs = p
-                    }
-                ), minute: Binding(
-                    get: { store.digestPrefs.minute },
-                    set: { v in
-                        var p = store.digestPrefs
-                        p.minute = min(59, max(0, v))
-                        store.digestPrefs = p
-                    }
-                ))
-            }
-
-            Button("保存提醒设置") {
-                Task {
-                    let prefs = store.digestPrefs
-                    await store.saveDigest(prefs)
-                    digestAlert = prefs.enabled ? "已更新每日汇总提醒" : "已关闭每日汇总提醒"
-                }
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
     @ViewBuilder
@@ -341,10 +281,12 @@ private struct RecurringTaskEditSheet: View {
     @State private var draft: RecurringTask
     @State private var kind: RecurrenceUIKind
     @State private var nDays: String
-    @State private var anchorYmd: String
+    @State private var anchorDate: Date
     @State private var weekdayJs: Int
-    @State private var dayOfMonth: String
-
+    @State private var dayOfMonth: Int
+    @State private var yearlyMonth: Int
+    @State private var yearlyDay: Int
+    @State private var skipWeekends: Bool
     private let isNew: Bool
     @State private var alertMessage: String?
 
@@ -353,32 +295,63 @@ private struct RecurringTaskEditSheet: View {
         self.isNew = isNew
         _draft = State(initialValue: task)
 
-        let today = LocalCalendarDate.localYmd(Date())
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        let todayComps = cal.dateComponents([.month, .day], from: Date())
+        let defaultMonth = todayComps.month ?? 1
+        let defaultDay = min(31, max(1, todayComps.day ?? 1))
+        let anchorFromStored: (String) -> Date = { ymd in
+            if let d = LocalCalendarDate.parseLocalYmd(ymd, calendar: cal) {
+                return cal.startOfDay(for: d)
+            }
+            return todayStart
+        }
         switch task.recurrence {
-        case .daily:
+        case let .daily(skip):
             _kind = State(initialValue: .daily)
             _nDays = State(initialValue: "2")
-            _anchorYmd = State(initialValue: today)
+            _anchorDate = State(initialValue: todayStart)
             _weekdayJs = State(initialValue: 1)
-            _dayOfMonth = State(initialValue: "1")
+            _dayOfMonth = State(initialValue: 1)
+            _yearlyMonth = State(initialValue: defaultMonth)
+            _yearlyDay = State(initialValue: defaultDay)
+            _skipWeekends = State(initialValue: skip)
         case let .everyNDays(n, anchor):
             _kind = State(initialValue: .everyNDays)
             _nDays = State(initialValue: String(n))
-            _anchorYmd = State(initialValue: anchor)
+            _anchorDate = State(initialValue: anchorFromStored(anchor))
             _weekdayJs = State(initialValue: 1)
-            _dayOfMonth = State(initialValue: "1")
-        case let .weekly(w):
+            _dayOfMonth = State(initialValue: 1)
+            _yearlyMonth = State(initialValue: defaultMonth)
+            _yearlyDay = State(initialValue: defaultDay)
+            _skipWeekends = State(initialValue: false)
+        case let .weekly(w, skip):
             _kind = State(initialValue: .weekly)
             _nDays = State(initialValue: "2")
-            _anchorYmd = State(initialValue: today)
+            _anchorDate = State(initialValue: todayStart)
             _weekdayJs = State(initialValue: w)
-            _dayOfMonth = State(initialValue: "1")
+            _dayOfMonth = State(initialValue: 1)
+            _yearlyMonth = State(initialValue: defaultMonth)
+            _yearlyDay = State(initialValue: defaultDay)
+            _skipWeekends = State(initialValue: skip)
         case let .monthly(d):
             _kind = State(initialValue: .monthly)
             _nDays = State(initialValue: "2")
-            _anchorYmd = State(initialValue: today)
+            _anchorDate = State(initialValue: todayStart)
             _weekdayJs = State(initialValue: 1)
-            _dayOfMonth = State(initialValue: String(d))
+            _dayOfMonth = State(initialValue: min(31, max(1, d)))
+            _yearlyMonth = State(initialValue: defaultMonth)
+            _yearlyDay = State(initialValue: defaultDay)
+            _skipWeekends = State(initialValue: false)
+        case let .yearly(m, d):
+            _kind = State(initialValue: .yearly)
+            _nDays = State(initialValue: "2")
+            _anchorDate = State(initialValue: todayStart)
+            _weekdayJs = State(initialValue: 1)
+            _dayOfMonth = State(initialValue: 1)
+            _yearlyMonth = State(initialValue: min(12, max(1, m)))
+            _yearlyDay = State(initialValue: min(31, max(1, d)))
+            _skipWeekends = State(initialValue: false)
         }
     }
 
@@ -392,17 +365,26 @@ private struct RecurringTaskEditSheet: View {
                 TextField("名称", text: $draft.title)
                     .textFieldStyle(.roundedBorder)
 
-                Picker("重复", selection: $kind) {
-                    ForEach(RecurrenceUIKind.allCases) { k in
-                        Text(k.label).tag(k)
+                Section {
+                    Picker("重复方式", selection: $kind) {
+                        ForEach(RecurrenceUIKind.allCases) { k in
+                            Text(k.label).tag(k)
+                        }
                     }
+                    .pickerStyle(.menu)
+                } header: {
+                    Text("循环规则")
                 }
 
                 if kind == .everyNDays {
                     TextField("间隔天数（2 = 隔一天一次）", text: $nDays)
                         .textFieldStyle(.roundedBorder)
-                    TextField("起始参考日（YYYY-MM-DD）", text: $anchorYmd)
-                        .textFieldStyle(.roundedBorder)
+                    DatePicker(
+                        "起始参考日",
+                        selection: $anchorDate,
+                        displayedComponents: .date
+                    )
+                    .environment(\.locale, Locale(identifier: "zh-Hans"))
                 }
 
                 if kind == .weekly {
@@ -422,20 +404,49 @@ private struct RecurringTaskEditSheet: View {
                     }
                 }
 
-                if kind == .monthly {
-                    TextField("每月几号（缺日期的月份会按最后一天算）", text: $dayOfMonth)
-                        .textFieldStyle(.roundedBorder)
+                if kind == .daily || kind == .weekly {
+                    Toggle("跳过周末（按系统日历的周六、周日）", isOn: $skipWeekends)
                 }
+
+                if kind == .monthly {
+                    Picker("每月几号", selection: $dayOfMonth) {
+                        ForEach(1 ... 31, id: \.self) { d in
+                            Text("\(d) 日").tag(d)
+                        }
+                    }
+                    Text("没有该日的月份会按当月最后一天计。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if kind == .yearly {
+                    Picker("月份", selection: $yearlyMonth) {
+                        ForEach(1 ... 12, id: \.self) { m in
+                            Text("\(m) 月").tag(m)
+                        }
+                    }
+                    Picker("几号", selection: $yearlyDay) {
+                        ForEach(1 ... 31, id: \.self) { d in
+                            Text("\(d) 日").tag(d)
+                        }
+                    }
+                    Text("该月没有此日时按当月最后一天计。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Text("提醒时刻")
+                    Spacer()
+                    HourMinuteFields(hour: $draft.notifyHour, minute: $draft.notifyMinute)
+                }
+
+                Text("哪天该做仍由重复规则决定；此处是当天几点响铃/排序（未开提醒时也会在日历、小组件里参与先后）。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Toggle("到点本地提醒", isOn: $draft.notifyEnabled)
-
-                if draft.notifyEnabled {
-                    HStack {
-                        Text("提醒时刻")
-                        Spacer()
-                        HourMinuteFields(hour: $draft.notifyHour, minute: $draft.notifyMinute)
-                    }
-                }
             }
             .formStyle(.grouped)
 
@@ -462,17 +473,20 @@ private struct RecurringTaskEditSheet: View {
     private func builtRecurrence() -> Recurrence? {
         switch kind {
         case .daily:
-            return .daily
+            return .daily(skipWeekends: skipWeekends)
         case .everyNDays:
             guard let n = Int(nDays), n >= 1 else { return nil }
-            let anchor = anchorYmd.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard anchor.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else { return nil }
+            let cal = Calendar.current
+            let anchor = LocalCalendarDate.localYmd(cal.startOfDay(for: anchorDate), calendar: cal)
             return .everyNDays(intervalDays: n, anchorDate: anchor)
         case .weekly:
-            return .weekly(weekdayJs: weekdayJs)
+            return .weekly(weekdayJs: weekdayJs, skipWeekends: skipWeekends)
         case .monthly:
-            guard let d = Int(dayOfMonth), (1 ... 31).contains(d) else { return nil }
-            return .monthly(dayOfMonth: d)
+            guard (1 ... 31).contains(dayOfMonth) else { return nil }
+            return .monthly(dayOfMonth: dayOfMonth)
+        case .yearly:
+            guard (1 ... 12).contains(yearlyMonth), (1 ... 31).contains(yearlyDay) else { return nil }
+            return .yearly(month: yearlyMonth, dayOfMonth: yearlyDay)
         }
     }
 
@@ -484,7 +498,7 @@ private struct RecurringTaskEditSheet: View {
             return
         }
         guard let r = builtRecurrence() else {
-            alertMessage = "请检查重复规则（间隔天数、每月日期、起始日格式等）"
+            alertMessage = "请检查重复规则（间隔天数、每月/每年日期等）"
             return
         }
         draft.title = title

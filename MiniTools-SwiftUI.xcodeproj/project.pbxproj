@@ -36,6 +36,7 @@
 
 /* Begin PBXFileReference section */
 		544A8D0A2F7B976D00FA73EC /* MiniTools-SwiftUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MiniTools-SwiftUI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E2B211132F7B976D00FA73ED /* MiniToolsCore */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MiniToolsCore; sourceTree = "<group>"; };
 		E2A100182F7B976D00FA73EC /* MiniToolsWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MiniToolsWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -75,6 +76,7 @@
 			children = (
 				544A8D0C2F7B976D00FA73EC /* MiniTools-SwiftUI */,
 				E2A1001A2F7B976D00FA73ED /* MiniToolsWidgets */,
+				E2B211132F7B976D00FA73ED /* MiniToolsCore */,
 				544A8D0B2F7B976D00FA73EC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -110,6 +112,7 @@
 			);
 			name = "MiniTools-SwiftUI";
 			packageProductDependencies = (
+				E2B211122F7B976D00FA73ED /* MiniToolsCore */,
 			);
 			productName = "MiniTools-SwiftUI";
 			productReference = 544A8D0A2F7B976D00FA73EC /* MiniTools-SwiftUI.app */;
@@ -132,6 +135,7 @@
 			);
 			name = MiniToolsWidgetsExtension;
 			packageProductDependencies = (
+				E2B211122F7B976D00FA73ED /* MiniToolsCore */,
 			);
 			productName = MiniToolsWidgetsExtension;
 			productReference = E2A100182F7B976D00FA73EC /* MiniToolsWidgetsExtension.appex */;
@@ -164,6 +168,9 @@
 			);
 			mainGroup = 544A8D012F7B976D00FA73EC;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E2B211112F7B976D00FA73ED /* XCLocalSwiftPackageReference "MiniToolsCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 544A8D0B2F7B976D00FA73EC /* Products */;
 			projectDirPath = "";
@@ -216,6 +223,21 @@
 			targetProxy = E2A100172F7B976D00FA73ED /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		E2B211112F7B976D00FA73ED /* XCLocalSwiftPackageReference "MiniToolsCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MiniToolsCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E2B211122F7B976D00FA73ED /* MiniToolsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E2B211112F7B976D00FA73ED /* XCLocalSwiftPackageReference "MiniToolsCore" */;
+			productName = MiniToolsCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		544A8D132F7B977200FA73EC /* Debug */ = {

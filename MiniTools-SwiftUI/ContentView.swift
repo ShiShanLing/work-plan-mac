@@ -30,7 +30,13 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            Task { await notifier.refreshAuthorizationStatus() }
+            Task {
+                await notifier.refreshAuthorizationStatus()
+                await store.refreshRecurringAndHourlyNotifications()
+            }
+        }
+        .onAppear {
+            NotificationScheduler.shared.efficiencyStore = store
         }
     }
 
@@ -65,6 +71,11 @@ struct ContentView: View {
                     RecurringTasksView()
                 }
                 .tabItem { Label("例行任务", systemImage: "arrow.triangle.2.circlepath") }
+
+                NavigationStack {
+                    HourlyWindowTasksView()
+                }
+                .tabItem { Label("时段提醒", systemImage: "clock.arrow.2.circlepath") }
 
                 NavigationStack {
                     TasksCalendarView()

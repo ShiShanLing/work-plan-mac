@@ -23,6 +23,9 @@ enum WidgetURLHandler {
         case "recurring":
             guard let id = items["id"], let ymd = items["ymd"] else { return }
             store.setTaskCompleted(taskId: id, ymd: ymd, done: true)
+        case "hourly":
+            guard let id = items["id"], let ymd = items["ymd"] else { return }
+            store.setHourlyWindowTaskCompleted(taskId: id, ymd: ymd, done: true)
         default:
             break
         }

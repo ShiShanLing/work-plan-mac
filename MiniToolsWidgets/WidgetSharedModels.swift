@@ -2,10 +2,11 @@
 //  WidgetSharedModels.swift
 //  MiniToolsWidgetsExtension
 //
-//  与主应用 JSON 字段一致（独立 target，故复制一份解码模型）。
+//  与主应用 JSON 字段一致（独立 target，故复制一份解码模型）。时段排期逻辑见 `MiniToolsCore.HourlyWindowScheduling`。
 //
 
 import Foundation
+import MiniToolsCore
 
 enum WidgetAppGroup {
     static let identifier = "group.com.MiniTools.www.MiniTools-SwiftUI"
@@ -14,29 +15,39 @@ enum WidgetAppGroup {
 // MARK: - Recurrence (copy)
 
 enum WGRecurrence: Codable, Equatable {
-    case daily
+    case daily(skipWeekends: Bool)
     case everyNDays(intervalDays: Int, anchorDate: String)
-    case weekly(weekdayJs: Int)
+    case weekly(weekdayJs: Int, skipWeekends: Bool)
     case monthly(dayOfMonth: Int)
+    case yearly(month: Int, dayOfMonth: Int)
 
     private enum CodingKeys: String, CodingKey {
-        case kind, intervalDays, anchorDate, weekdayJs, dayOfMonth
+        case kind, intervalDays, anchorDate, weekdayJs, dayOfMonth, month, skipWeekends
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let kind = try c.decode(String.self, forKey: .kind)
         switch kind {
-        case "daily": self = .daily
+        case "daily":
+            self = .daily(skipWeekends: try c.decodeIfPresent(Bool.self, forKey: .skipWeekends) ?? false)
         case "everyNDays":
             self = .everyNDays(
                 intervalDays: try c.decode(Int.self, forKey: .intervalDays),
                 anchorDate: try c.decode(String.self, forKey: .anchorDate)
             )
         case "weekly":
-            self = .weekly(weekdayJs: try c.decode(Int.self, forKey: .weekdayJs))
+            self = .weekly(
+                weekdayJs: try c.decode(Int.self, forKey: .weekdayJs),
+                skipWeekends: try c.decodeIfPresent(Bool.self, forKey: .skipWeekends) ?? false
+            )
         case "monthly":
             self = .monthly(dayOfMonth: try c.decode(Int.self, forKey: .dayOfMonth))
+        case "yearly":
+            self = .yearly(
+                month: try c.decode(Int.self, forKey: .month),
+                dayOfMonth: try c.decode(Int.self, forKey: .dayOfMonth)
+            )
         default:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: c, debugDescription: kind)
         }
@@ -45,16 +56,23 @@ enum WGRecurrence: Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .daily: try c.encode("daily", forKey: .kind)
+        case let .daily(skipWeekends):
+            try c.encode("daily", forKey: .kind)
+            try c.encode(skipWeekends, forKey: .skipWeekends)
         case let .everyNDays(intervalDays, anchorDate):
             try c.encode("everyNDays", forKey: .kind)
             try c.encode(intervalDays, forKey: .intervalDays)
             try c.encode(anchorDate, forKey: .anchorDate)
-        case let .weekly(weekdayJs):
+        case let .weekly(weekdayJs, skipWeekends):
             try c.encode("weekly", forKey: .kind)
             try c.encode(weekdayJs, forKey: .weekdayJs)
+            try c.encode(skipWeekends, forKey: .skipWeekends)
         case let .monthly(dayOfMonth):
             try c.encode("monthly", forKey: .kind)
+            try c.encode(dayOfMonth, forKey: .dayOfMonth)
+        case let .yearly(month, dayOfMonth):
+            try c.encode("yearly", forKey: .kind)
+            try c.encode(month, forKey: .month)
             try c.encode(dayOfMonth, forKey: .dayOfMonth)
         }
     }
@@ -98,6 +116,17 @@ enum WGCalendar {
         return calendar.component(.day, from: ref) == target
     }
 
+    static func isYearlyDue(month: Int, dayOfMonth: Int, ref: Date, calendar: Calendar = .current) -> Bool {
+        guard (1 ... 12).contains(month) else { return false }
+        let refMonth = calendar.component(.month, from: ref)
+        guard refMonth == month else { return false }
+        let y = calendar.component(.year, from: ref)
+        let mIdx = month - 1
+        let last = lastDayOfMonth(year: y, monthIndex: mIdx, calendar: calendar)
+        let target = min(max(1, dayOfMonth), last)
+        return calendar.component(.day, from: ref) == target
+    }
+
     static func isDueEveryNDays(intervalDays: Int, anchorYmd: String, ref: Date, calendar: Calendar = .current) -> Bool {
         guard intervalDays >= 1, let anchor = parseLocalYmd(anchorYmd, calendar: calendar) else { return false }
         let anchorStart = calendar.startOfDay(for: anchor)
@@ -106,32 +135,48 @@ enum WGCalendar {
         return diff >= 0 && diff % intervalDays == 0
     }
 
+    static func excludesWeekendDueDate(skipWeekends: Bool, ref: Date, calendar: Calendar = .current) -> Bool {
+        skipWeekends && calendar.isDateInWeekend(ref)
+    }
+
     static func isTaskDueOn(recurrence: WGRecurrence, ref: Date, calendar: Calendar = .current) -> Bool {
         switch recurrence {
-        case .daily: return true
+        case let .daily(skipWeekends):
+            if excludesWeekendDueDate(skipWeekends: skipWeekends, ref: ref, calendar: calendar) { return false }
+            return true
         case let .everyNDays(intervalDays, anchor):
             return isDueEveryNDays(intervalDays: intervalDays, anchorYmd: anchor, ref: ref, calendar: calendar)
-        case let .weekly(weekdayJs):
+        case let .weekly(weekdayJs, skipWeekends):
             // 与主应用 `LocalCalendarDate.appleWeekday(fromJSWeekday:)` 一致：JS 一周 0…6，规范化后再 +1 对齐 `Calendar.Component.weekday`（1=周日…）。
             let js = ((weekdayJs % 7) + 7) % 7
-            return calendar.component(.weekday, from: ref) == js + 1
+            guard calendar.component(.weekday, from: ref) == js + 1 else { return false }
+            if excludesWeekendDueDate(skipWeekends: skipWeekends, ref: ref, calendar: calendar) { return false }
+            return true
         case let .monthly(dayOfMonth):
             return isMonthlyDueDay(dayOfMonth: dayOfMonth, ref: ref, calendar: calendar)
+        case let .yearly(month, dayOfMonth):
+            return isYearlyDue(month: month, dayOfMonth: dayOfMonth, ref: ref, calendar: calendar)
         }
     }
 
     static func recurrenceLabel(_ r: WGRecurrence) -> String {
         let weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
         switch r {
-        case .daily:
-            return "每天"
+        case let .daily(skipWeekends):
+            return skipWeekends ? "每个工作日" : "每天"
         case let .everyNDays(interval, _):
             return interval <= 1 ? "每天" : "每 \(interval) 天"
-        case let .weekly(weekdayJs):
+        case let .weekly(weekdayJs, skipWeekends):
             let idx = ((weekdayJs % 7) + 7) % 7
-            return "每周\(weekdays[idx])"
+            var base = "每周\(weekdays[idx])"
+            if skipWeekends, idx == 0 || idx == 6 {
+                base += "（周末除外）"
+            }
+            return base
         case let .monthly(day):
             return "每月 \(day) 日"
+        case let .yearly(month, day):
+            return "每年 \(month) 月 \(day) 日"
         }
     }
 }
@@ -218,9 +263,9 @@ struct WGRecurringTask: Codable, Identifiable {
         id = try c.decode(String.self, forKey: .id)
         title = try c.decode(String.self, forKey: .title)
         recurrence = try c.decode(WGRecurrence.self, forKey: .recurrence)
-        notifyEnabled = try c.decode(Bool.self, forKey: .notifyEnabled)
-        notifyHour = try c.decode(Int.self, forKey: .notifyHour)
-        notifyMinute = try c.decode(Int.self, forKey: .notifyMinute)
+        notifyEnabled = try c.decodeIfPresent(Bool.self, forKey: .notifyEnabled) ?? false
+        notifyHour = try c.decodeIfPresent(Int.self, forKey: .notifyHour) ?? 9
+        notifyMinute = try c.decodeIfPresent(Int.self, forKey: .notifyMinute) ?? 0
         notificationIds = try c.decodeIfPresent([String].self, forKey: .notificationIds) ?? []
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? WGCalendar.localYmd(Date())
         completedYmds = try c.decodeIfPresent([String].self, forKey: .completedYmds) ?? []
@@ -237,6 +282,111 @@ struct WGRecurringTask: Codable, Identifiable {
         try c.encode(notificationIds, forKey: .notificationIds)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(completedYmds, forKey: .completedYmds)
+    }
+}
+
+// MARK: - 时段任务（与主应用 `hourly_window_tasks.json` 一致）
+
+struct WGHourlyWindowTask: Codable, Identifiable {
+    var id: String
+    var title: String
+    /// 与主应用一致：分钟 1…1440；JSON 可读旧字段 `intervalHours`（×60）。
+    var intervalMinutes: Int
+    var windowStartHour: Int
+    var windowStartMinute: Int
+    var windowEndHour: Int
+    var windowEndMinute: Int
+    /// 0 = 结束在同一天；1 = 结束在次日（与主应用、日期选择器一致）。
+    var windowEndDayOffset: Int
+    var weekdaysOnly: Bool
+    var notifyEnabled: Bool
+    var notificationIds: [String]
+    var createdAt: String
+    var completedYmds: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, intervalMinutes, intervalHours
+        case windowStartHour, windowStartMinute, windowEndHour, windowEndMinute
+        case windowEndDayOffset
+        case weekdaysOnly, notifyEnabled, notificationIds, createdAt, completedYmds
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        if let m = try c.decodeIfPresent(Int.self, forKey: .intervalMinutes) {
+            intervalMinutes = m
+        } else if let h = try c.decodeIfPresent(Int.self, forKey: .intervalHours) {
+            intervalMinutes = max(1, min(1440, h * 60))
+        } else {
+            intervalMinutes = 60
+        }
+        windowStartHour = try c.decode(Int.self, forKey: .windowStartHour)
+        windowStartMinute = try c.decode(Int.self, forKey: .windowStartMinute)
+        windowEndHour = try c.decode(Int.self, forKey: .windowEndHour)
+        windowEndMinute = try c.decode(Int.self, forKey: .windowEndMinute)
+        if let off = try c.decodeIfPresent(Int.self, forKey: .windowEndDayOffset) {
+            windowEndDayOffset = off == 1 ? 1 : 0
+        } else {
+            let a = windowStartHour * 60 + windowStartMinute
+            let b = windowEndHour * 60 + windowEndMinute
+            windowEndDayOffset = a > b ? 1 : 0
+        }
+        weekdaysOnly = try c.decode(Bool.self, forKey: .weekdaysOnly)
+        notifyEnabled = try c.decode(Bool.self, forKey: .notifyEnabled)
+        notificationIds = try c.decodeIfPresent([String].self, forKey: .notificationIds) ?? []
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? WGCalendar.localYmd(Date())
+        completedYmds = try c.decodeIfPresent([String].self, forKey: .completedYmds) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(intervalMinutes, forKey: .intervalMinutes)
+        try c.encode(windowStartHour, forKey: .windowStartHour)
+        try c.encode(windowStartMinute, forKey: .windowStartMinute)
+        try c.encode(windowEndHour, forKey: .windowEndHour)
+        try c.encode(windowEndMinute, forKey: .windowEndMinute)
+        try c.encode(windowEndDayOffset, forKey: .windowEndDayOffset)
+        try c.encode(weekdaysOnly, forKey: .weekdaysOnly)
+        try c.encode(notifyEnabled, forKey: .notifyEnabled)
+        try c.encode(notificationIds, forKey: .notificationIds)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(completedYmds, forKey: .completedYmds)
+    }
+
+    var hourlyWindowConfig: HourlyWindowConfig {
+        HourlyWindowConfig(
+            intervalMinutes: intervalMinutes,
+            windowStartHour: windowStartHour,
+            windowStartMinute: windowStartMinute,
+            windowEndHour: windowEndHour,
+            windowEndMinute: windowEndMinute,
+            windowEndDayOffset: windowEndDayOffset,
+            weekdaysOnly: weekdaysOnly
+        )
+    }
+
+    func isValidWindow(calendar cal: Calendar = .current) -> Bool {
+        HourlyWindowScheduling.isValidWindow(hourlyWindowConfig, calendar: cal)
+    }
+
+    func summaryScheduleLabel() -> String {
+        HourlyWindowScheduling.scheduleLabel(
+            intervalMinutes: intervalMinutes,
+            startHour: windowStartHour,
+            startMinute: windowStartMinute,
+            endHour: windowEndHour,
+            endMinute: windowEndMinute,
+            windowEndDayOffset: windowEndDayOffset,
+            weekdaysOnly: weekdaysOnly
+        )
+    }
+
+    func isActive(on dayDate: Date, calendar: Calendar) -> Bool {
+        HourlyWindowScheduling.appliesToDay(weekdaysOnly: weekdaysOnly, date: dayDate, calendar: calendar)
     }
 }
 
@@ -302,6 +452,10 @@ enum TodayWidgetIO {
         loadJSONArray([WGRecurringTask].self, fileName: "recurring_tasks.json")
     }
 
+    static func loadHourlyWindow() -> [WGHourlyWindowTask] {
+        loadJSONArray([WGHourlyWindowTask].self, fileName: "hourly_window_tasks.json")
+    }
+
     static func saveRecurring(_ items: [WGRecurringTask]) throws {
         guard let dir = dataDirectory else { throw CocoaError(.fileNoSuchFile) }
         let url = dir.appending(path: "recurring_tasks.json", directoryHint: .notDirectory)
@@ -317,6 +471,8 @@ struct TodayRowData: Identifiable {
     let title: String
     let subtitle: String
     let isOneTime: Bool
+    /// `true` 时表示时段任务，`isOneTime` 为 `false`。
+    let isHourly: Bool
     let rawId: String
     let todayYmd: String
 }
@@ -326,6 +482,7 @@ struct NextUpTaskInfo {
     let title: String
     let detail: String
     let isOneTime: Bool
+    let isHourly: Bool
     let rawId: String
     /// 例行任务勾选链接必填；一次性可填 `dateYmd` 备用。
     let ymdForRecurring: String
@@ -346,12 +503,22 @@ enum TodayWidgetRowLoader {
         let cal = widgetCalendar
         let oneTimes = TodayWidgetIO.loadOneTimes()
         let recurring = TodayWidgetIO.loadRecurring()
-        let rows = makeRows(now: now, calendar: cal, oneTimes: oneTimes, recurring: recurring)
+        let hourly = TodayWidgetIO.loadHourlyWindow()
+        let rows = makeRows(
+            now: now,
+            calendar: cal,
+            oneTimes: oneTimes,
+            recurring: recurring,
+            hourly: hourly
+        )
         var skipOneTimeIds: Set<String> = []
         var skipRecurringDayKeys: Set<String> = []
+        var skipHourlyDayKeys: Set<String> = []
         for row in rows {
             if row.isOneTime {
                 skipOneTimeIds.insert(row.rawId)
+            } else if row.isHourly {
+                skipHourlyDayKeys.insert("\(row.rawId)|\(row.todayYmd)")
             } else {
                 skipRecurringDayKeys.insert("\(row.rawId)|\(row.todayYmd)")
             }
@@ -361,8 +528,10 @@ enum TodayWidgetRowLoader {
             calendar: cal,
             oneTimes: oneTimes,
             recurring: recurring,
+            hourly: hourly,
             skipOneTimeIds: skipOneTimeIds,
-            skipRecurringDayKeys: skipRecurringDayKeys
+            skipRecurringDayKeys: skipRecurringDayKeys,
+            skipHourlyDayKeys: skipHourlyDayKeys
         )
         return (rows, next)
     }
@@ -372,7 +541,8 @@ enum TodayWidgetRowLoader {
             now: now,
             calendar: cal,
             oneTimes: TodayWidgetIO.loadOneTimes(),
-            recurring: TodayWidgetIO.loadRecurring()
+            recurring: TodayWidgetIO.loadRecurring(),
+            hourly: TodayWidgetIO.loadHourlyWindow()
         )
     }
 
@@ -380,7 +550,8 @@ enum TodayWidgetRowLoader {
         now: Date,
         calendar cal: Calendar,
         oneTimes: [WGOneTimeReminder],
-        recurring: [WGRecurringTask]
+        recurring: [WGRecurringTask],
+        hourly: [WGHourlyWindowTask]
     ) -> [TodayRowData] {
         let today = WGCalendar.localYmd(now, calendar: cal)
         var rows: [TodayRowData] = []
@@ -397,6 +568,7 @@ enum TodayWidgetRowLoader {
                 title: o.title.isEmpty ? "（无标题）" : o.title,
                 subtitle: "定时 · \(o.fireSummary())",
                 isOneTime: true,
+                isHourly: false,
                 rawId: o.id,
                 todayYmd: today
             ))
@@ -414,7 +586,27 @@ enum TodayWidgetRowLoader {
                 title: t.title.isEmpty ? "（无标题）" : t.title,
                 subtitle: "例行 · \(WGCalendar.recurrenceLabel(t.recurrence))",
                 isOneTime: false,
+                isHourly: false,
                 rawId: t.id,
+                todayYmd: today
+            ))
+        }
+
+        guard let todayDate = WGCalendar.parseLocalYmd(today, calendar: cal) else { return rows }
+        let hrs = hourly
+            .filter { h in
+                guard h.isValidWindow(), h.isActive(on: todayDate, calendar: cal) else { return false }
+                return !h.completedYmds.contains(today)
+            }
+            .sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        for h in hrs {
+            rows.append(TodayRowData(
+                id: "h-\(h.id)",
+                title: h.title.isEmpty ? "（无标题）" : h.title,
+                subtitle: "时段 · \(h.summaryScheduleLabel())",
+                isOneTime: false,
+                isHourly: true,
+                rawId: h.id,
                 todayYmd: today
             ))
         }
@@ -432,8 +624,10 @@ enum TodayWidgetRowLoader {
             calendar: c,
             oneTimes: TodayWidgetIO.loadOneTimes(),
             recurring: TodayWidgetIO.loadRecurring(),
+            hourly: TodayWidgetIO.loadHourlyWindow(),
             skipOneTimeIds: [],
-            skipRecurringDayKeys: []
+            skipRecurringDayKeys: [],
+            skipHourlyDayKeys: []
         )
     }
 
@@ -442,8 +636,10 @@ enum TodayWidgetRowLoader {
         calendar c: Calendar,
         oneTimes allOne: [WGOneTimeReminder],
         recurring allRec: [WGRecurringTask],
+        hourly allHourly: [WGHourlyWindowTask],
         skipOneTimeIds: Set<String> = [],
-        skipRecurringDayKeys: Set<String> = []
+        skipRecurringDayKeys: Set<String> = [],
+        skipHourlyDayKeys: Set<String> = []
     ) -> NextUpTaskInfo? {
         let startToday = c.startOfDay(for: now)
 
@@ -492,33 +688,67 @@ enum TodayWidgetRowLoader {
             }
         }
 
-        guard bestOneFire != nil || bestRecDate != nil else { return nil }
+        var bestHourlyTask: WGHourlyWindowTask?
+        var bestHourlyDate: Date?
+        var bestHourlyYmd: String?
+
+        for h in allHourly {
+            guard let hit = firstPendingHourlySlot(
+                task: h,
+                from: now,
+                calendar: c,
+                maxDays: upcomingScanDays,
+                skipHourlyDayKeys: skipHourlyDayKeys
+            )
+            else { continue }
+            if bestHourlyDate == nil || hit.sortDate < bestHourlyDate! {
+                bestHourlyTask = h
+                bestHourlyDate = hit.sortDate
+                bestHourlyYmd = hit.ymd
+            }
+        }
+
+        enum Winner { case one, rec, hourly }
+        var winner: Winner?
+        var winDate: Date?
+        if let o = bestOneFire {
+            winner = .one
+            winDate = o
+        }
+        if let r = bestRecDate {
+            if winDate == nil || r < winDate! {
+                winner = .rec
+                winDate = r
+            }
+        }
+        if let h = bestHourlyDate {
+            if winDate == nil || h < winDate! {
+                winner = .hourly
+                winDate = h
+            }
+        }
+        guard winner != nil else { return nil }
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh-Hans")
         formatter.timeZone = TimeZone.current
         formatter.dateFormat = "yyyy-MM-dd EEEE"
 
-        let preferOneTime: Bool
-        if let odt = bestOneFire, let rdt = bestRecDate {
-            preferOneTime = odt <= rdt
-        } else {
-            preferOneTime = bestRecDate == nil
-        }
-
-        if preferOneTime, let o = bestOne, let ft = bestOneFire {
+        switch winner! {
+        case .one:
+            guard let o = bestOne, let ft = bestOneFire else { return nil }
             let dayLabel = formatter.string(from: ft)
             let timeStr = String(format: "%02d:%02d", o.hour, o.minute)
             return NextUpTaskInfo(
                 title: o.title.isEmpty ? "（无标题）" : o.title,
                 detail: "\(dayLabel) · \(timeStr) · 定时",
                 isOneTime: true,
+                isHourly: false,
                 rawId: o.id,
                 ymdForRecurring: o.dateYmd
             )
-        }
-
-        if let r = bestRecTask, let rt = bestRecDate, let ymd = bestRecYmd {
+        case .rec:
+            guard let r = bestRecTask, let rt = bestRecDate, let ymd = bestRecYmd else { return nil }
             let timeStr = String(format: "%02d:%02d", r.notifyHour, r.notifyMinute)
             let dayLabel = formatter.string(from: rt)
             let sched = r.notifyEnabled ? "提醒 \(timeStr)" : "无时间提醒"
@@ -526,11 +756,48 @@ enum TodayWidgetRowLoader {
                 title: r.title.isEmpty ? "（无标题）" : r.title,
                 detail: "\(dayLabel) · \(sched) · \(WGCalendar.recurrenceLabel(r.recurrence))",
                 isOneTime: false,
+                isHourly: false,
                 rawId: r.id,
                 ymdForRecurring: ymd
             )
+        case .hourly:
+            guard let h = bestHourlyTask, let ht = bestHourlyDate, let ymd = bestHourlyYmd else { return nil }
+            let dayLabel = formatter.string(from: ht)
+            let hcomp = c.component(.hour, from: ht)
+            let mcomp = c.component(.minute, from: ht)
+            let timeStr = String(format: "%02d:%02d", hcomp, mcomp)
+            let sched = h.notifyEnabled ? "提醒 \(timeStr)" : "下一档 \(timeStr)"
+            return NextUpTaskInfo(
+                title: h.title.isEmpty ? "（无标题）" : h.title,
+                detail: "\(dayLabel) · \(sched) · \(h.summaryScheduleLabel())",
+                isOneTime: false,
+                isHourly: true,
+                rawId: h.id,
+                ymdForRecurring: ymd
+            )
         }
+    }
 
+    private static func firstPendingHourlySlot(
+        task: WGHourlyWindowTask,
+        from now: Date,
+        calendar cal: Calendar,
+        maxDays: Int,
+        skipHourlyDayKeys: Set<String>
+    ) -> (sortDate: Date, ymd: String)? {
+        guard task.isValidWindow() else { return nil }
+        let startToday = cal.startOfDay(for: now)
+        for offset in 0 ..< maxDays {
+            guard let d = cal.date(byAdding: .day, value: offset, to: startToday) else { continue }
+            let dayStart = cal.startOfDay(for: d)
+            let ymd = WGCalendar.localYmd(dayStart, calendar: cal)
+            if task.completedYmds.contains(ymd) { continue }
+            if skipHourlyDayKeys.contains("\(task.id)|\(ymd)") { continue }
+            let slots = HourlyWindowScheduling.slotDates(on: dayStart, calendar: cal, config: task.hourlyWindowConfig)
+            for slot in slots.sorted() where slot > now {
+                return (slot, ymd)
+            }
+        }
         return nil
     }
 

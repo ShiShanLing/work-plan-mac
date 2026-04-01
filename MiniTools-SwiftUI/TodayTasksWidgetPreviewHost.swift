@@ -16,6 +16,7 @@ private struct PreviewTodayRow: Identifiable {
     let title: String
     let subtitle: String
     let isOneTime: Bool
+    let isHourly: Bool
     let rawId: String
     let todayYmd: String
 }
@@ -24,6 +25,7 @@ private struct PreviewNextUp {
     let title: String
     let detail: String
     let isOneTime: Bool
+    let isHourly: Bool
     let rawId: String
     let ymdForRecurring: String
 }
@@ -46,6 +48,12 @@ private enum PreviewDeepLink {
                 URLQueryItem(name: "type", value: "onetime"),
                 URLQueryItem(name: "id", value: row.rawId),
             ]
+        } else if row.isHourly {
+            c.queryItems = [
+                URLQueryItem(name: "type", value: "hourly"),
+                URLQueryItem(name: "id", value: row.rawId),
+                URLQueryItem(name: "ymd", value: row.todayYmd),
+            ]
         } else {
             c.queryItems = [
                 URLQueryItem(name: "type", value: "recurring"),
@@ -64,6 +72,12 @@ private enum PreviewDeepLink {
             c.queryItems = [
                 URLQueryItem(name: "type", value: "onetime"),
                 URLQueryItem(name: "id", value: info.rawId),
+            ]
+        } else if info.isHourly {
+            c.queryItems = [
+                URLQueryItem(name: "type", value: "hourly"),
+                URLQueryItem(name: "id", value: info.rawId),
+                URLQueryItem(name: "ymd", value: info.ymdForRecurring),
             ]
         } else {
             c.queryItems = [
@@ -254,13 +268,15 @@ private struct TodayTasksWidgetPreviewCanvas: View {
 private enum TodayTasksWidgetPreviewData {
     static let ymd = "2026-03-31"
     static let rows: [PreviewTodayRow] = [
-        PreviewTodayRow(id: "o-1", title: "买牛奶", subtitle: "定时 · \(ymd) 09:30", isOneTime: true, rawId: "preview-onetime", todayYmd: ymd),
-        PreviewTodayRow(id: "r-1", title: "团队例会", subtitle: "例行 · 每周一", isOneTime: false, rawId: "preview-recurring", todayYmd: ymd),
+        PreviewTodayRow(id: "o-1", title: "买牛奶", subtitle: "定时 · \(ymd) 09:30", isOneTime: true, isHourly: false, rawId: "preview-onetime", todayYmd: ymd),
+        PreviewTodayRow(id: "r-1", title: "团队例会", subtitle: "例行 · 每周一", isOneTime: false, isHourly: false, rawId: "preview-recurring", todayYmd: ymd),
+        PreviewTodayRow(id: "h-1", title: "喝水", subtitle: "时段 · 每 1 小时 · 09:00–17:30 · 仅工作日", isOneTime: false, isHourly: true, rawId: "preview-hourly", todayYmd: ymd),
     ]
     static let nextUp = PreviewNextUp(
         title: "交周报",
         detail: "2026-04-01 周三 · 提醒 10:00 · 每周三",
         isOneTime: false,
+        isHourly: false,
         rawId: "preview-next",
         ymdForRecurring: "2026-04-01"
     )
