@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 本地 Release：用本机 Xcode 钥匙串签名构建 → 打成 zip → 通过 GitHub CLI 创建/更新 Release（无需网页上传）。
+# 本地 Release：用本机 Xcode 钥匙串签名构建 → 打成 zip → 通过 GitHub CLI 创建 Release（无需网页上传）。
 #
 # 前提：
 #   brew install gh && gh auth login（能操作本仓库的 contents 权限即可）
@@ -11,7 +11,8 @@
 #
 # 说明：推送到 GitHub 的 tag + Release 由 gh 创建；请把仓库变量 USE_CLOUD_RELEASE 关掉（勿设为 true），
 #       否则 tag 仍会触发云端 workflow（见 .github/workflows/release-macos.yml）。
-# 产物目录：每次执行会先清空 package/，再写入 MiniTools-SwiftUI.app、对应版本 zip 与 sha256（目录已加入 .gitignore）。
+# 产物目录：**仅清空本机 package/**（删除本地旧 .app / zip / sha256，只保留当次构建）；GitHub 上已有 Release **不会删除**。
+# 若 VERSION 对应的 Release 已在 GitHub 存在，脚本会报错退出，请改用新版本号。
 
 set -euo pipefail
 
@@ -20,6 +21,9 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# 旧版脚本可能把 zip 留在仓库根目录，一并清掉，避免与本机「只保留当前包」混淆
+rm -f "$ROOT"/MiniTools-SwiftUI-v*.zip "$ROOT"/MiniTools-SwiftUI-v*.zip.sha256 2>/dev/null || true
 
 # ======================== 可配置（每次发版只改这里） ========================
 VERSION="v1.0.9"
@@ -87,8 +91,9 @@ shasum -a 256 "$ZIP" | tee "$SHASUM"
 git push origin "$BRANCH"
 
 if gh release view "$VERSION" >/dev/null 2>&1; then
-  echo ">>> 已存在 Release $VERSION，删除后重建…"
-  gh release delete "$VERSION" --yes --cleanup-tag
+  echo "错误: GitHub 上已存在 Release $VERSION。为保留线上历史版本，本脚本不会删除旧 Release。"
+  echo "请把脚本里的 VERSION 改为新版本号（例如 v1.0.10）后再执行。"
+  exit 1
 fi
 
 echo ">>> 创建 GitHub Release 并上传 zip / checksum…"
