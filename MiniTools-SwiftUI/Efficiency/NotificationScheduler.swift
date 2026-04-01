@@ -256,6 +256,13 @@ final class NotificationScheduler: ObservableObject {
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
 
+    /// 移除本应用当前在系统中**全部**待触发的本地通知，并清空通知中心里**已送达**列表。
+    /// 用于清理测试残留、旧 bundle id 或已删任务仍排队的请求；之后需对当前任务重新 `sync` 才会恢复合法提醒。
+    func removeEveryPendingAndDeliveredNotification() {
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+    }
+
     /// 取消指定时段任务在通知中心里的全部**待定**请求（不依赖 `notificationIds` 字段是否与会话同步）。
     func cancelPendingHourlyWindowNotifications(taskId: String) async {
         let requests = await center.pendingNotificationRequests()

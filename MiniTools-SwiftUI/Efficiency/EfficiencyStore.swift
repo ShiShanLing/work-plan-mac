@@ -15,6 +15,13 @@ final class EfficiencyStore {
     var hourlyWindowTasks: [HourlyWindowTask] = []
     private(set) var hasCompletedInitialLoad = false
 
+    /// 为 true 时：不向系统 `add` 新通知（含冷启动与回前台续排），直到用户再次编辑任务或选「清空并重新排程」。
+    private static let silenceAutoNotificationRescheduleKey = "minitools_silence_auto_notification_reschedule"
+
+    private func resumeAutoNotificationRescheduling() {
+        UserDefaults.standard.removeObject(forKey: Self.silenceAutoNotificationRescheduleKey)
+    }
+
     init() {
         NotificationScheduler.shared.efficiencyStore = self
     }
@@ -22,6 +29,8 @@ final class EfficiencyStore {
     func loadInitial() async {
         guard !hasCompletedInitialLoad else { return }
         NotificationScheduler.shared.efficiencyStore = self
+
+        let silence = UserDefaults.standard.bool(forKey: Self.silenceAutoNotificationRescheduleKey)
 
         let oneLoad = LocalJSONStore.loadOneTimeRemindersDetailed()
         oneTimeReminders = oneLoad.items
@@ -31,27 +40,31 @@ final class EfficiencyStore {
         // 已移除「每日汇总提醒」；清掉旧版可能仍存在的系统通知请求。
         NotificationScheduler.shared.cancelPending(identifiers: ["recurring.digest"])
 
-        let syncedOnce = await NotificationScheduler.shared.syncAllOneTimeReminders(oneTimeReminders)
-        oneTimeReminders = syncedOnce
-        if oneLoad.shouldWriteBack {
-            LocalJSONStore.saveOneTimeReminders(oneTimeReminders)
-        }
+        if !silence {
+            let syncedOnce = await NotificationScheduler.shared.syncAllOneTimeReminders(oneTimeReminders)
+            oneTimeReminders = syncedOnce
+            if oneLoad.shouldWriteBack {
+                LocalJSONStore.saveOneTimeReminders(oneTimeReminders)
+            }
 
-        recurringTasks = await Self.parallelSyncRecurringTasks(recurringTasks)
-        if recLoad.shouldWriteBack {
-            LocalJSONStore.saveRecurringTasks(recurringTasks)
+            recurringTasks = await Self.parallelSyncRecurringTasks(recurringTasks)
+            if recLoad.shouldWriteBack {
+                LocalJSONStore.saveRecurringTasks(recurringTasks)
+            }
         }
 
         let hwLoad = LocalJSONStore.loadHourlyWindowTasksDetailed()
         hourlyWindowTasks = hwLoad.items
         applyPersistedHourlyWindowDismissalsFromNotification()
 
-        await NotificationScheduler.shared.cancelOrphanHourlyWindowPendingNotifications(
-            knownTaskIds: Set(hourlyWindowTasks.map(\.id))
-        )
-        hourlyWindowTasks = await Self.parallelSyncHourlyWindowTasks(hourlyWindowTasks)
-        if hwLoad.shouldWriteBack {
-            LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+        if !silence {
+            await NotificationScheduler.shared.cancelOrphanHourlyWindowPendingNotifications(
+                knownTaskIds: Set(hourlyWindowTasks.map(\.id))
+            )
+            hourlyWindowTasks = await Self.parallelSyncHourlyWindowTasks(hourlyWindowTasks)
+            if hwLoad.shouldWriteBack {
+                LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+            }
         }
 
         await NotificationScheduler.shared.refreshAuthorizationStatus()
@@ -59,9 +72,51 @@ final class EfficiencyStore {
         MiniToolsWidgetReloader.reloadAll()
     }
 
+    /// 移除系统在「待触发队列」和通知中心里与本应用相关的全部条目（**含所有未来已排程**），并清空各任务上缓存的 `notificationIds` 后写盘；**不会**再向系统添加新请求，直到你编辑某条任务或选「清空并重新排程」。
+    func clearAllNotificationsOnlyPersistIds() {
+        UserDefaults.standard.set(true, forKey: Self.silenceAutoNotificationRescheduleKey)
+        NotificationScheduler.shared.removeEveryPendingAndDeliveredNotification()
+        for i in oneTimeReminders.indices { oneTimeReminders[i].notificationIds = [] }
+        for i in recurringTasks.indices { recurringTasks[i].notificationIds = [] }
+        for i in hourlyWindowTasks.indices { hourlyWindowTasks[i].notificationIds = [] }
+        LocalJSONStore.saveOneTimeReminders(oneTimeReminders)
+        LocalJSONStore.saveRecurringTasks(recurringTasks)
+        LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+        Task {
+            await NotificationScheduler.shared.refreshAuthorizationStatus()
+        }
+        MiniToolsWidgetReloader.reloadAll()
+    }
+
+    /// 清空系统通知队列里全部待定与已送达条目后，按当前 JSON 中的任务重新排队（消除测试/僵尸提醒）。
+    func purgeAllNotificationQueueAndResync() async {
+        resumeAutoNotificationRescheduling()
+        NotificationScheduler.shared.removeEveryPendingAndDeliveredNotification()
+
+        for i in oneTimeReminders.indices { oneTimeReminders[i].notificationIds = [] }
+        for i in recurringTasks.indices { recurringTasks[i].notificationIds = [] }
+        for i in hourlyWindowTasks.indices { hourlyWindowTasks[i].notificationIds = [] }
+
+        oneTimeReminders = await NotificationScheduler.shared.syncAllOneTimeReminders(oneTimeReminders)
+        LocalJSONStore.saveOneTimeReminders(oneTimeReminders)
+
+        recurringTasks = await Self.parallelSyncRecurringTasks(recurringTasks)
+        LocalJSONStore.saveRecurringTasks(recurringTasks)
+
+        await NotificationScheduler.shared.cancelOrphanHourlyWindowPendingNotifications(
+            knownTaskIds: Set(hourlyWindowTasks.map(\.id))
+        )
+        hourlyWindowTasks = await Self.parallelSyncHourlyWindowTasks(hourlyWindowTasks)
+        LocalJSONStore.saveHourlyWindowTasks(hourlyWindowTasks)
+
+        await NotificationScheduler.shared.refreshAuthorizationStatus()
+        MiniToolsWidgetReloader.reloadAll()
+    }
+
     /// 应用回到前台时续排「每 N 小时」与例行任务系统通知（单次触发队列会耗尽）。
     func refreshRecurringAndHourlyNotifications() async {
         applyPersistedHourlyWindowDismissalsFromNotification()
+        guard !UserDefaults.standard.bool(forKey: Self.silenceAutoNotificationRescheduleKey) else { return }
         await NotificationScheduler.shared.cancelOrphanHourlyWindowPendingNotifications(
             knownTaskIds: Set(hourlyWindowTasks.map(\.id))
         )
@@ -116,6 +171,7 @@ final class EfficiencyStore {
     }
 
     func upsertOneTimeReminder(_ reminder: OneTimeReminder) async {
+        resumeAutoNotificationRescheduling()
         #if DEBUG
         AppLog.store.debug("upsertOneTime id=\(reminder.id, privacy: .public)")
         #endif
@@ -135,6 +191,7 @@ final class EfficiencyStore {
     }
 
     func deleteOneTimeReminder(id: String) {
+        resumeAutoNotificationRescheduling()
         if let r = oneTimeReminders.first(where: { $0.id == id }) {
             NotificationScheduler.shared.cancelPending(identifiers: r.notificationIds)
         }
@@ -144,6 +201,7 @@ final class EfficiencyStore {
     }
 
     func setOneTimeReminderCompleted(id: String, completed: Bool) async {
+        resumeAutoNotificationRescheduling()
         guard let idx = oneTimeReminders.firstIndex(where: { $0.id == id }) else { return }
         oneTimeReminders[idx].isCompleted = completed
         if completed {
@@ -158,6 +216,7 @@ final class EfficiencyStore {
     }
 
     func upsertRecurringTask(_ task: RecurringTask) async {
+        resumeAutoNotificationRescheduling()
         var list = recurringTasks
         let synced = await NotificationScheduler.shared.syncRecurringTask(task)
         if let idx = list.firstIndex(where: { $0.id == synced.id }) {
@@ -172,6 +231,7 @@ final class EfficiencyStore {
     }
 
     func deleteRecurringTask(id: String) {
+        resumeAutoNotificationRescheduling()
         if let t = recurringTasks.first(where: { $0.id == id }) {
             NotificationScheduler.shared.cancelPending(identifiers: t.notificationIds)
         }
@@ -188,6 +248,7 @@ final class EfficiencyStore {
     }
 
     func upsertHourlyWindowTask(_ task: HourlyWindowTask) async {
+        resumeAutoNotificationRescheduling()
         var list = hourlyWindowTasks
         let synced = await NotificationScheduler.shared.syncHourlyWindowTask(task)
         if let idx = list.firstIndex(where: { $0.id == synced.id }) {
@@ -202,6 +263,7 @@ final class EfficiencyStore {
     }
 
     func deleteHourlyWindowTask(id: String) async {
+        resumeAutoNotificationRescheduling()
         await NotificationScheduler.shared.cancelPendingHourlyWindowNotifications(taskId: id)
         if let t = hourlyWindowTasks.first(where: { $0.id == id }) {
             NotificationScheduler.shared.cancelPending(identifiers: t.notificationIds)
@@ -220,6 +282,7 @@ final class EfficiencyStore {
 
     /// 取消「今日不再提示」后重新按时间窗向系统排队（用户误点通知或需继续提醒时）。
     func restoreHourlyWindowTodaySchedule(taskId: String) async {
+        resumeAutoNotificationRescheduling()
         let ymd = LocalCalendarDate.localYmd(Date())
         guard let idx = hourlyWindowTasks.firstIndex(where: { $0.id == taskId }) else { return }
         hourlyWindowTasks[idx].setCompleted(false, on: ymd)
@@ -232,6 +295,7 @@ final class EfficiencyStore {
 
     /// 通知上点「不再提示」：今日标为已完成、取消该任务当前待定通知并按规则续排（不再含今日未完成档位）。
     func markHourlyWindowDoneFromNotification(taskId: String) async {
+        resumeAutoNotificationRescheduling()
         guard let idx = hourlyWindowTasks.firstIndex(where: { $0.id == taskId }) else { return }
         let ymd = LocalCalendarDate.localYmd(Date())
         hourlyWindowTasks[idx].setCompleted(true, on: ymd)
