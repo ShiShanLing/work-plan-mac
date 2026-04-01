@@ -112,9 +112,9 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
             build 2>&1 | tee build.log
-          APP="$(find "$PWD/DerivedData" -name 'MiniTools-SwiftUI.app' -type d | head -1)"
+          APP="$(find "$PWD/DerivedData" -name '工作计划.app' -type d | head -1)"
           if [ -z "$APP" ] || [ ! -d "$APP" ]; then
-            echo "::error::未找到 MiniTools-SwiftUI.app，请查看上文 xcodebuild 与 build.log"
+            echo "::error::未找到 工作计划.app，请查看上文 xcodebuild 与 build.log"
             find DerivedData -name '*.app' -type d || true
             exit 1
           fi

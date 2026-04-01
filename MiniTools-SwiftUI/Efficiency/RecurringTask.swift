@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import MiniToolsCore
 
 struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
     var id: String
@@ -75,7 +76,7 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
             id: "\(Int(Date().timeIntervalSince1970 * 1000))",
             title: "",
             recurrence: .daily(skipWeekends: false),
-            notifyEnabled: false,
+            notifyEnabled: true,
             notifyHour: 9,
             notifyMinute: 0,
             notificationIds: [],
@@ -90,6 +91,19 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
 
     func isCompleted(on ymd: String) -> Bool {
         completedYmds.contains(ymd)
+    }
+
+    /// 创建日当天提醒时刻已过则该日不从「近日待办 / 日历 / 小组件」展示（见 `RecurringLateCreationDayFilter`）。
+    func shouldOmitFromDisplay(on cellYmd: String, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        RecurringLateCreationDayFilter.shouldOmitFromDisplay(
+            createdAtYmd: createdAt,
+            notifyEnabled: notifyEnabled,
+            notifyHour: notifyHour,
+            notifyMinute: notifyMinute,
+            cellDayYmd: cellYmd,
+            now: now,
+            calendar: calendar
+        )
     }
 
     mutating func setCompleted(_ done: Bool, on ymd: String) {

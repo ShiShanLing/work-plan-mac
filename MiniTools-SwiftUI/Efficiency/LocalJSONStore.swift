@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import MiniToolsCore
 
 /// 主应用与小组件共用 App Group 内 JSON；失败时回退到本机 Application Support（无小组件同步）。
 enum LocalJSONStore {
@@ -37,17 +38,53 @@ enum LocalJSONStore {
 
     private static var directoryURL: URL {
         if let groupRoot = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: AppGroup.identifier) {
-            let dir = groupRoot.appending(path: "MiniToolsData", directoryHint: .isDirectory)
+            let dir = groupRoot.appending(path: MiniToolsDataIsolation.appGroupJSONDirectoryName, directoryHint: .isDirectory)
             if !FileManager.default.fileExists(atPath: dir.path()) {
                 try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 migrateFromLegacyIfNeeded(into: dir)
             } else if !UserDefaults.standard.bool(forKey: "minitools_migrated_legacy_to_group") {
                 migrateFromLegacyIfNeeded(into: dir)
             }
+            #if DEBUG
+            migrateOldMiniToolsDataGroupFolderToDebugIfNeeded(groupRoot: groupRoot, debugDir: dir)
+            #endif
             return dir
         }
         return legacyDirectoryURL
     }
+
+    #if DEBUG
+    /// 旧版共用 App Group 下 `MiniToolsData`；Debug 现改用 `MiniToolsData-debug`，首次启动时复制旧目录，避免本地任务“凭空消失”。
+    private static func migrateOldMiniToolsDataGroupFolderToDebugIfNeeded(groupRoot: URL, debugDir: URL) {
+        let key = "minitools_v2_copied_group_minitoolsdata_to_debug"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        let oldShared = groupRoot.appending(path: "MiniToolsData", directoryHint: .isDirectory)
+        guard FileManager.default.fileExists(atPath: oldShared.path()) else {
+            UserDefaults.standard.set(true, forKey: key)
+            return
+        }
+        let debugHasAny = fileNames.contains { FileManager.default.fileExists(atPath: debugDir.appending(path: $0).path()) }
+        if debugHasAny {
+            UserDefaults.standard.set(true, forKey: key)
+            return
+        }
+        let oldHasAny = fileNames.contains { FileManager.default.fileExists(atPath: oldShared.appending(path: $0).path()) }
+        guard oldHasAny else {
+            UserDefaults.standard.set(true, forKey: key)
+            return
+        }
+        if !FileManager.default.fileExists(atPath: debugDir.path()) {
+            try? FileManager.default.createDirectory(at: debugDir, withIntermediateDirectories: true)
+        }
+        for name in fileNames {
+            let src = oldShared.appending(path: name, directoryHint: .notDirectory)
+            let dst = debugDir.appending(path: name, directoryHint: .notDirectory)
+            guard FileManager.default.fileExists(atPath: src.path()), !FileManager.default.fileExists(atPath: dst.path()) else { continue }
+            try? FileManager.default.copyItem(at: src, to: dst)
+        }
+        UserDefaults.standard.set(true, forKey: key)
+    }
+    #endif
 
     /// 首次使用共享目录时，从旧 Application Support 复制已有 JSON。
     private static func migrateFromLegacyIfNeeded(into groupDir: URL) {

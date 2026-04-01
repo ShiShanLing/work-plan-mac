@@ -55,8 +55,10 @@ struct RecurringTasksView: View {
     }
 
     private func tasksForGroupedDay(ymd: String, dayDate: Date, calendar: Calendar) -> [RecurringTask] {
-        store.recurringTasks.filter { task in
+        let now = Date()
+        return store.recurringTasks.filter { task in
             guard task.isDueOn(dayDate, calendar: calendar) else { return false }
+            guard !task.shouldOmitFromDisplay(on: ymd, now: now, calendar: calendar) else { return false }
             switch task.recurrence {
             case .daily(_):
                 guard ymd == todayYmd else { return false }
@@ -64,7 +66,8 @@ struct RecurringTasksView: View {
             default:
                 return !task.isCompleted(on: ymd)
             }
-        }.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        }
+        .sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
     }
 
     private var sortedAll: [RecurringTask] {

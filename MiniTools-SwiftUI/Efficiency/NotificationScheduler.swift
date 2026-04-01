@@ -11,7 +11,7 @@ import OSLog
 import UserNotifications
 
 private enum MiniToolsNotificationCategory {
-    /// 定时提醒、例行任务（按天粒度）：仅「延迟 1 小时」。
+    /// 定时提醒、例行任务（按天粒度）：「标记完成」「延迟 1 小时」。
     static let snoozeable = "minitools.snoozeable"
     /// 时段提醒（按分钟间隔）：仅「不再提示」= 今日该时段已完成并取消余下提醒。
     static let hourlyWindow = "minitools.hourlywindow"
@@ -19,7 +19,38 @@ private enum MiniToolsNotificationCategory {
 
 private enum MiniToolsNotificationActionID {
     static let snooze1h = "minitools.snooze.1h"
+    static let markComplete = "minitools.mark.complete"
     static let hourlyDoneToday = "minitools.hourly.doneToday"
+}
+
+/// 冷启动时 `efficiencyStore` 可能尚未注入，但 `syncHourlyWindowTask` 会按「今日未完成」再次写入系统通知；先把「今日不再提示」记在 UserDefaults，下次 `loadInitial` 再合并进 `completedYmds`。
+enum PendingHourlyWindowDismissStorage {
+    private static let udKey = "minitools.pendingHourlyDismissByTaskId"
+
+    static func record(taskId: String, calendar: Calendar = .current) {
+        var d = UserDefaults.standard.dictionary(forKey: udKey) as? [String: String] ?? [:]
+        d[taskId] = LocalCalendarDate.localYmd(Date(), calendar: calendar)
+        UserDefaults.standard.set(d, forKey: udKey)
+    }
+
+    static func remove(taskId: String) {
+        var d = UserDefaults.standard.dictionary(forKey: udKey) as? [String: String] ?? [:]
+        d.removeValue(forKey: taskId)
+        if d.isEmpty {
+            UserDefaults.standard.removeObject(forKey: udKey)
+        } else {
+            UserDefaults.standard.set(d, forKey: udKey)
+        }
+    }
+
+    /// 取出并清除。用于启动时合并进磁盘任务。
+    static func takeAllForStartupMerge() -> [String: String] {
+        guard let raw = UserDefaults.standard.dictionary(forKey: udKey) as? [String: String], !raw.isEmpty else {
+            return [:]
+        }
+        UserDefaults.standard.removeObject(forKey: udKey)
+        return raw
+    }
 }
 
 /// `UNUserNotificationCenterDelegate` 必须由 `NSObject` 实现；若与 `@MainActor` 叠在同一类上，系统可能在任意线程回调 ObjC 路径，易触发异常访问。
@@ -71,6 +102,11 @@ final class NotificationScheduler: ObservableObject {
     }
 
     private static func registerNotificationCategories() {
+        let markDone = UNNotificationAction(
+            identifier: MiniToolsNotificationActionID.markComplete,
+            title: "标记完成",
+            options: []
+        )
         let snooze = UNNotificationAction(
             identifier: MiniToolsNotificationActionID.snooze1h,
             title: "延迟 1 小时",
@@ -84,7 +120,7 @@ final class NotificationScheduler: ObservableObject {
 
         let daySnooze = UNNotificationCategory(
             identifier: MiniToolsNotificationCategory.snoozeable,
-            actions: [snooze],
+            actions: [markDone, snooze],
             intentIdentifiers: [],
             options: []
         )
@@ -95,6 +131,21 @@ final class NotificationScheduler: ObservableObject {
             options: []
         )
         UNUserNotificationCenter.current().setNotificationCategories([daySnooze, hourlyOnly])
+    }
+
+    private static func makeRecurringNotificationContent(title: String, taskId: String, fireYmd: String?) -> UNMutableNotificationContent {
+        let c = UNMutableNotificationContent()
+        c.title = "例行任务"
+        c.body = title
+        c.sound = .default
+        c.threadIdentifier = "recurring"
+        c.categoryIdentifier = MiniToolsNotificationCategory.snoozeable
+        var info: [String: Any] = ["kind": "recurring-task", "taskId": taskId]
+        if let fireYmd {
+            info["ymd"] = fireYmd
+        }
+        c.userInfo = info
+        return c
     }
 
     /// 定时 / 例行：选「延迟 1 小时」时再排一条单次通知（仍为 `snoozeable`）。
@@ -108,7 +159,24 @@ final class NotificationScheduler: ObservableObject {
             guard kind == "hourly-window-task",
                   let taskId = original.userInfo["taskId"] as? String
             else { return }
+            // 先落盘意图，避免回调早于 SwiftUI 注入 store 时仅 cancel 了队列、下次 sync 又把今天档期写回系统。
+            PendingHourlyWindowDismissStorage.record(taskId: taskId)
+            await cancelPendingHourlyWindowNotifications(taskId: taskId)
             await efficiencyStore?.markHourlyWindowDoneFromNotification(taskId: taskId)
+            return
+        }
+
+        if aid == MiniToolsNotificationActionID.markComplete {
+            guard kind != "hourly-window-task" else { return }
+            if kind == "one-time-reminder", let rid = original.userInfo["reminderId"] as? String {
+                await efficiencyStore?.setOneTimeReminderCompleted(id: rid, completed: true)
+                return
+            }
+            if kind == "recurring-task", let tid = original.userInfo["taskId"] as? String {
+                let ymd = (original.userInfo["ymd"] as? String) ?? LocalCalendarDate.localYmd(Date())
+                efficiencyStore?.setTaskCompleted(taskId: tid, ymd: ymd, done: true)
+                return
+            }
             return
         }
 
@@ -186,6 +254,30 @@ final class NotificationScheduler: ObservableObject {
     func cancelPending(identifiers: [String]) {
         guard !identifiers.isEmpty else { return }
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+
+    /// 取消指定时段任务在通知中心里的全部**待定**请求（不依赖 `notificationIds` 字段是否与会话同步）。
+    func cancelPendingHourlyWindowNotifications(taskId: String) async {
+        let requests = await center.pendingNotificationRequests()
+        let ids = requests.compactMap { req -> String? in
+            guard (req.content.userInfo["kind"] as? String) == "hourly-window-task",
+                  let tid = req.content.userInfo["taskId"] as? String, tid == taskId
+            else { return nil }
+            return req.identifier
+        }
+        cancelPending(identifiers: ids)
+    }
+
+    /// 去掉「JSON 里已不存在」的时段任务仍排队的通知（修复僵尸提醒）。
+    func cancelOrphanHourlyWindowPendingNotifications(knownTaskIds: Set<String>) async {
+        let requests = await center.pendingNotificationRequests()
+        let ids = requests.compactMap { req -> String? in
+            guard (req.content.userInfo["kind"] as? String) == "hourly-window-task",
+                  let tid = req.content.userInfo["taskId"] as? String
+            else { return nil }
+            return knownTaskIds.contains(tid) ? nil : req.identifier
+        }
+        cancelPending(identifiers: ids)
     }
 
     func syncOneTimeReminder(_ reminder: OneTimeReminder) async -> OneTimeReminder {
@@ -282,13 +374,6 @@ final class NotificationScheduler: ObservableObject {
         }
 
         var ids: [String] = []
-        let contentBase = UNMutableNotificationContent()
-        contentBase.title = "例行任务"
-        contentBase.body = title
-        contentBase.sound = .default
-        contentBase.threadIdentifier = "recurring"
-        contentBase.categoryIdentifier = MiniToolsNotificationCategory.snoozeable
-        contentBase.userInfo = ["kind": "recurring-task", "taskId": t.id]
 
         let h = min(23, max(0, t.notifyHour))
         let m = min(59, max(0, t.notifyMinute))
@@ -309,7 +394,9 @@ final class NotificationScheduler: ObservableObject {
                     let dc = cal.dateComponents([.year, .month, .day, .hour, .minute], from: at)
                     let id = "recurring.\(t.id).daily.wd.\(idx)"
                     let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: false)
-                    let req = UNNotificationRequest(identifier: id, content: contentBase, trigger: trigger)
+                    let ymd = LocalCalendarDate.localYmd(dayStart, calendar: cal)
+                    let content = Self.makeRecurringNotificationContent(title: title, taskId: t.id, fireYmd: ymd)
+                    let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
                     do {
                         try await center.add(req)
                         ids.append(id)
@@ -323,7 +410,8 @@ final class NotificationScheduler: ObservableObject {
                 dc.minute = m
                 let id = "recurring.\(t.id).daily"
                 let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
-                let req = UNNotificationRequest(identifier: id, content: contentBase, trigger: trigger)
+                let content = Self.makeRecurringNotificationContent(title: title, taskId: t.id, fireYmd: nil)
+                let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
                 do {
                     try await center.add(req)
                     ids.append(id)
@@ -344,7 +432,8 @@ final class NotificationScheduler: ObservableObject {
             dc.minute = m
             let id = "recurring.\(t.id).weekly"
             let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
-            let req = UNNotificationRequest(identifier: id, content: contentBase, trigger: trigger)
+            let content = Self.makeRecurringNotificationContent(title: title, taskId: t.id, fireYmd: nil)
+            let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
             do {
                 try await center.add(req)
                 ids.append(id)
@@ -359,7 +448,8 @@ final class NotificationScheduler: ObservableObject {
             dc.minute = m
             let id = "recurring.\(t.id).monthly"
             let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
-            let req = UNNotificationRequest(identifier: id, content: contentBase, trigger: trigger)
+            let content = Self.makeRecurringNotificationContent(title: title, taskId: t.id, fireYmd: nil)
+            let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
             do {
                 try await center.add(req)
                 ids.append(id)
@@ -375,7 +465,8 @@ final class NotificationScheduler: ObservableObject {
             dc.minute = m
             let id = "recurring.\(t.id).yearly"
             let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
-            let req = UNNotificationRequest(identifier: id, content: contentBase, trigger: trigger)
+            let content = Self.makeRecurringNotificationContent(title: title, taskId: t.id, fireYmd: nil)
+            let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
             do {
                 try await center.add(req)
                 ids.append(id)
@@ -399,7 +490,9 @@ final class NotificationScheduler: ObservableObject {
                 let dc = cal.dateComponents([.year, .month, .day, .hour, .minute], from: at)
                 let id = "recurring.\(t.id).n.\(idx)"
                 let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: false)
-                let req = UNNotificationRequest(identifier: id, content: contentBase, trigger: trigger)
+                let ymd = LocalCalendarDate.localYmd(dayStart, calendar: cal)
+                let content = Self.makeRecurringNotificationContent(title: title, taskId: t.id, fireYmd: ymd)
+                let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
                 do {
                     try await center.add(req)
                     ids.append(id)

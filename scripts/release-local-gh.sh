@@ -13,6 +13,7 @@
 #       否则 tag 仍会触发云端 workflow（见 .github/workflows/release-macos.yml）。
 # 产物目录：**仅清空本机 package/**（删除本地旧 .app / zip / sha256，只保留当次构建）；GitHub 上已有 Release **不会删除**。
 # 若 VERSION 对应的 Release 已在 GitHub 存在，脚本会报错退出，请改用新版本号。
+# 主应用产物名为「工作计划.app」（PRODUCT_NAME）；zip 文件名仍为 MiniTools-SwiftUI-${VERSION}.zip，与历史 Release 习惯一致。
 
 set -euo pipefail
 
@@ -69,9 +70,9 @@ xcodebuild \
   -derivedDataPath "$DERIVED" \
   build | tee "$ROOT/build/last-local-release-xcodebuild.log"
 
-APP="$(find "$DERIVED" -name 'MiniTools-SwiftUI.app' -type d | head -1)"
+APP="$(find "$DERIVED" -name '工作计划.app' -type d | head -1)"
 if [[ -z "$APP" ]] || [[ ! -d "$APP" ]]; then
-  echo "错误: 未找到 MiniTools-SwiftUI.app，请查看 build/last-local-release-xcodebuild.log"
+  echo "错误: 未找到 工作计划.app，请查看 build/last-local-release-xcodebuild.log"
   exit 1
 fi
 
@@ -80,7 +81,7 @@ PKGDIR="$ROOT/package"
 rm -rf "$PKGDIR"
 mkdir -p "$PKGDIR"
 
-APP_IN_PKG="$PKGDIR/MiniTools-SwiftUI.app"
+APP_IN_PKG="$PKGDIR/工作计划.app"
 ditto "$APP" "$APP_IN_PKG"
 
 ZIP="$PKGDIR/MiniTools-SwiftUI-${VERSION}.zip"

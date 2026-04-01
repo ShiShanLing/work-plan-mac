@@ -10,7 +10,10 @@ struct OneTimeRemindersView: View {
     @ObservedObject private var notifier = NotificationScheduler.shared
 
     @State private var sheetReminder: OneTimeReminder?
-    @State private var pendingDelete: OneTimeReminder?
+    /// 主列表删除确认（勿与历史 sheet 共用：sheet 打开时下层 confirmationDialog 在 macOS 上会挡住不出现）。
+    @State private var pendingDeleteMain: OneTimeReminder?
+    /// 历史记录 sheet 内删除确认（须挂在 sheet 自己的视图树上）。
+    @State private var pendingDeleteHistory: OneTimeReminder?
     @State private var alertMessage: String?
     @State private var showCompletedHistorySheet = false
     @State private var historySearchText = ""
@@ -156,20 +159,20 @@ struct OneTimeRemindersView: View {
         .confirmationDialog(
             "删除提醒",
             isPresented: Binding(
-                get: { pendingDelete != nil },
-                set: { if !$0 { pendingDelete = nil } }
+                get: { pendingDeleteMain != nil },
+                set: { if !$0 { pendingDeleteMain = nil } }
             ),
             titleVisibility: .visible
         ) {
             Button("删除", role: .destructive) {
-                if let r = pendingDelete {
+                if let r = pendingDeleteMain {
                     store.deleteOneTimeReminder(id: r.id)
                 }
-                pendingDelete = nil
+                pendingDeleteMain = nil
             }
-            Button("取消", role: .cancel) { pendingDelete = nil }
+            Button("取消", role: .cancel) { pendingDeleteMain = nil }
         } message: {
-            if let r = pendingDelete {
+            if let r = pendingDeleteMain {
                 Text("确定删除「\(r.title.isEmpty ? "（无标题）" : r.title)」？")
             }
         }
@@ -209,7 +212,7 @@ struct OneTimeRemindersView: View {
                             ForEach(filteredHistoryGrouped, id: \.ymd) { group in
                                 EfficiencyDateSectionHeader.label(ymd: group.ymd, count: group.items.count)
                                 ForEach(group.items) { item in
-                                    reminderRow(item, store: store, showCompletedMeta: true)
+                                    reminderRow(item, store: store, showCompletedMeta: true, deleteConfirmInHistorySheet: true)
                                 }
                             }
                         }
@@ -227,11 +230,36 @@ struct OneTimeRemindersView: View {
                     }
                 }
             }
+            .confirmationDialog(
+                "删除提醒",
+                isPresented: Binding(
+                    get: { pendingDeleteHistory != nil },
+                    set: { if !$0 { pendingDeleteHistory = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("删除", role: .destructive) {
+                    if let r = pendingDeleteHistory {
+                        store.deleteOneTimeReminder(id: r.id)
+                    }
+                    pendingDeleteHistory = nil
+                }
+                Button("取消", role: .cancel) { pendingDeleteHistory = nil }
+            } message: {
+                if let r = pendingDeleteHistory {
+                    Text("确定删除「\(r.title.isEmpty ? "（无标题）" : r.title)」？")
+                }
+            }
         }
     }
 
     @ViewBuilder
-    private func reminderRow(_ r: OneTimeReminder, store: EfficiencyStore, showCompletedMeta: Bool = false) -> some View {
+    private func reminderRow(
+        _ r: OneTimeReminder,
+        store: EfficiencyStore,
+        showCompletedMeta: Bool = false,
+        deleteConfirmInHistorySheet: Bool = false
+    ) -> some View {
         let expired = !r.isFireTimeInFuture()
         HStack(alignment: .top, spacing: 12) {
             Toggle(isOn: Binding(
@@ -295,8 +323,19 @@ struct OneTimeRemindersView: View {
                 Image(systemName: "pencil.circle")
             }
             .buttonStyle(.borderless)
+            .disabled(r.isCompleted)
+            .opacity(r.isCompleted ? 0.35 : 1)
+            .help(
+                r.isCompleted
+                    ? "已完成项不会发通知，无需编辑；若要改内容请先取消勾选「已完成」。"
+                    : "编辑"
+            )
             Button {
-                pendingDelete = r
+                if deleteConfirmInHistorySheet {
+                    pendingDeleteHistory = r
+                } else {
+                    pendingDeleteMain = r
+                }
             } label: {
                 Image(systemName: "trash.circle")
             }

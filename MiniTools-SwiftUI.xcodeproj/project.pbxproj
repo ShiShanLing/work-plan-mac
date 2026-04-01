@@ -35,7 +35,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		544A8D0A2F7B976D00FA73EC /* MiniTools-SwiftUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MiniTools-SwiftUI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		544A8D0A2F7B976D00FA73EC /* 工作计划.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "工作计划.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2B211132F7B976D00FA73ED /* MiniToolsCore */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MiniToolsCore; sourceTree = "<group>"; };
 		E2A100182F7B976D00FA73EC /* MiniToolsWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MiniToolsWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -84,7 +84,7 @@
 		544A8D0B2F7B976D00FA73EC /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				544A8D0A2F7B976D00FA73EC /* MiniTools-SwiftUI.app */,
+				544A8D0A2F7B976D00FA73EC /* 工作计划.app */,
 				E2A100182F7B976D00FA73EC /* MiniToolsWidgetsExtension.appex */,
 			);
 			name = Products;
@@ -115,7 +115,7 @@
 				E2B211122F7B976D00FA73ED /* MiniToolsCore */,
 			);
 			productName = "MiniTools-SwiftUI";
-			productReference = 544A8D0A2F7B976D00FA73EC /* MiniTools-SwiftUI.app */;
+			productReference = 544A8D0A2F7B976D00FA73EC /* 工作计划.app */;
 			productType = "com.apple.product-type.application";
 		};
 		E2A100192F7B976D00FA73ED /* MiniToolsWidgetsExtension */ = {
@@ -376,6 +376,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "工作计划";
+				INFOPLIST_KEY_CFBundleName = "工作计划";
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"com.MiniTools.www.MiniTools-SwiftUI.widget\";\n    CFBundleURLSchemes =     (\n        minitools\n    );\n}";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSUserNotificationsUsageDescription = "用于在指定时间发送仅与本应用相关的本地提醒；数据保存在本机、不会上传。";
@@ -385,7 +386,7 @@
 				);
 				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.MiniTools.www.MiniTools-SwiftUI";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "工作计划";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -412,6 +413,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "工作计划";
+				INFOPLIST_KEY_CFBundleName = "工作计划";
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"com.MiniTools.www.MiniTools-SwiftUI.widget\";\n    CFBundleURLSchemes =     (\n        minitools\n    );\n}";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSUserNotificationsUsageDescription = "用于在指定时间发送仅与本应用相关的本地提醒；数据保存在本机、不会上传。";
@@ -421,7 +423,7 @@
 				);
 				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.MiniTools.www.MiniTools-SwiftUI";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "工作计划";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
