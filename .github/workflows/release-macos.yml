@@ -1,9 +1,18 @@
 # 在推送版本标签（如 v1.0.5）时构建 Release .app，打成 zip 并挂到 GitHub Release。
-# 使用方式：
-#   git tag v1.0.5
-#   git push origin v1.0.5
 #
-# 若 CI 因签名/权限失败：可在 Xcode 里用 Archive 导出后，到 Releases 页面手动上传 zip。
+# 必要条件（仓库 Settings → Secrets and variables → Actions）：
+#   APPLE_TEAM_ID            : 10 位 Team ID（与 Xcode Signing 里一致，如 H2F8HK67WK）
+#   BUILD_CERTIFICATE_BASE64 : 从「钥匙串访问」导出的 .p12（Apple Development 或 Developer ID Application）再做 base64
+#   P12_PASSWORD             : 导出 .p12 时设的密码
+#   KEYCHAIN_PASSWORD        : 任意强密码，仅用于 CI 临时钥匙串
+#
+# 导出 p12：钥匙串访问 → 选中「Apple Development: xxx」证书 → 导出为 .p12
+# 生成 Base64（本机终端）：
+#   base64 -i YourCert.p12 | pbcopy
+# 将剪贴板内容粘贴到 secret BUILD_CERTIFICATE_BASE64
+#
+# 使用：
+#   git tag v1.0.5 && git push origin v1.0.5
 
 name: Release (macOS .app)
 
@@ -22,20 +31,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Import code signing certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUILD_CERTIFICATE_BASE64:-}" ] || [ -z "${P12_PASSWORD:-}" ] || [ -z "${KEYCHAIN_PASSWORD:-}" ]; then
+            echo "::error::缺少签名用 Secrets。请配置 BUILD_CERTIFICATE_BASE64、P12_PASSWORD、KEYCHAIN_PASSWORD、APPLE_TEAM_ID。"
+            echo "::error::原因：App Sandbox + App Group 必须在 CI 上使用证书签名才能 xcodebuild，无法用 CODE_SIGNING_REQUIRED=NO。"
+            exit 1
+          fi
+          CERT_PATH="$RUNNER_TEMP/signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
+
       - name: Resolve SPM
         run: xcodebuild -resolvePackageDependencies -scheme MiniTools-SwiftUI -project MiniTools-SwiftUI.xcodeproj -derivedDataPath DerivedData
 
       - name: Build Release
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          if [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "::error::请配置 secret APPLE_TEAM_ID（Xcode → Signing 中的 Team ID）"
+            exit 1
+          fi
           xcodebuild \
             -scheme MiniTools-SwiftUI \
             -project MiniTools-SwiftUI.xcodeproj \
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -derivedDataPath DerivedData \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
             build
           APP="DerivedData/Build/Products/Release/MiniTools-SwiftUI.app"
           test -d "$APP"
