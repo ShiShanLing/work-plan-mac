@@ -304,8 +304,8 @@ final class NotificationScheduler: ObservableObject {
 
         let granted = await ensureAuthorizedForScheduling()
         guard granted else {
+            // 勿改写 notifyEnabled：未授权时只清空队列 id，避免用户稍后开通知后任务「还魂为关」或误以为数据被清。
             r.notificationIds = []
-            r.notifyEnabled = false
             return r
         }
 
@@ -369,7 +369,6 @@ final class NotificationScheduler: ObservableObject {
         let granted = await ensureAuthorizedForScheduling()
         guard granted else {
             t.notificationIds = []
-            t.notifyEnabled = false
             return t
         }
 
@@ -519,7 +518,6 @@ final class NotificationScheduler: ObservableObject {
         let granted = await ensureAuthorizedForScheduling()
         guard granted else {
             t.notificationIds = []
-            t.notifyEnabled = false
             return t
         }
 

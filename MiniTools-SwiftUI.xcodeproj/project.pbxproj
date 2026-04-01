@@ -125,6 +125,7 @@
 				E2A1001E2F7B976D00FA73ED /* Sources */,
 				E2A1001F2F7B976D00FA73ED /* Frameworks */,
 				E2A100202F7B976D00FA73ED /* Resources */,
+				E2A100212F7B976D00FA73ED /* Fix widget CFBundleName for system UI */,
 			);
 			buildRules = (
 			);
@@ -198,6 +199,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E2A100212F7B976D00FA73ED /* Fix widget CFBundleName for system UI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Fix widget CFBundleName for system UI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "INFO=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}/Contents/Info.plist\"\nif [ -f \"$INFO\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CFBundleName 工作计划\" \"$INFO\" || exit 1\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		544A8D062F7B976D00FA73EC /* Sources */ = {
@@ -444,6 +467,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WidgetExtensionInfo.plist;
@@ -456,7 +480,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.MiniTools.www.MiniTools-SwiftUI.MiniToolsWidgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -479,6 +503,7 @@
 				DEVELOPMENT_TEAM = H2F8HK67WK;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WidgetExtensionInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "工作计划 · 今日待办";
@@ -490,7 +515,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.MiniTools.www.MiniTools-SwiftUI.MiniToolsWidgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

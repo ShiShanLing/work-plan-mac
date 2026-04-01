@@ -27,8 +27,8 @@ cd "$ROOT"
 rm -f "$ROOT"/MiniTools-SwiftUI-v*.zip "$ROOT"/MiniTools-SwiftUI-v*.zip.sha256 2>/dev/null || true
 
 # ======================== 可配置（每次发版只改这里） ========================
-VERSION="v1.0.10"
-COMMIT_MSG="修复功能bug"
+VERSION="v1.0.11"
+COMMIT_MSG="修改本地缓存bug"
 BRANCH="dev"
 # ==========================================================================
 
