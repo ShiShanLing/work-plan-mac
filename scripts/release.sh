@@ -14,7 +14,7 @@
 # CI 发版：仓库需配置 workflow 注释中的 Secrets（含 App Store Connect API，见 release-macos.yml）。
 # 若无 API 密钥 / CI 签名失败：勿依赖「推 tag 自动出包」；请在本地 Xcode 或 xcodebuild 打好 .app 后，
 #   用 GitHub 网页在对应 Release 里上传 zip，或本机已登录 gh 时执行：
-#   gh release upload "$VERSION" ./MiniTools-SwiftUI-"$VERSION".zip --clobber
+#   gh release upload "$VERSION" ./package/MiniTools-SwiftUI-"$VERSION".zip --clobber
 
 set -euo pipefail
 

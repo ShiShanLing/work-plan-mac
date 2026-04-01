@@ -11,6 +11,7 @@
 #
 # 说明：推送到 GitHub 的 tag + Release 由 gh 创建；请把仓库变量 USE_CLOUD_RELEASE 关掉（勿设为 true），
 #       否则 tag 仍会触发云端 workflow（见 .github/workflows/release-macos.yml）。
+# 产物目录：每次执行会先清空 package/，再写入 MiniTools-SwiftUI.app、对应版本 zip 与 sha256（目录已加入 .gitignore）。
 
 set -euo pipefail
 
@@ -21,7 +22,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # ======================== 可配置（每次发版只改这里） ========================
-VERSION="v1.0.8"
+VERSION="v1.0.9"
 COMMIT_MSG="github 打包错误问题处理"
 BRANCH="dev"
 # ==========================================================================
@@ -70,10 +71,18 @@ if [[ -z "$APP" ]] || [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-ZIP="$ROOT/MiniTools-SwiftUI-${VERSION}.zip"
-rm -f "$ZIP" "$ROOT/MiniTools-SwiftUI-${VERSION}.zip.sha256"
-ditto -c -k --keepParent "$APP" "$ZIP"
-shasum -a 256 "$ZIP" | tee "$ROOT/MiniTools-SwiftUI-${VERSION}.zip.sha256"
+# 安装包统一放在 package/：每次发版先清空，仅保留当前构建
+PKGDIR="$ROOT/package"
+rm -rf "$PKGDIR"
+mkdir -p "$PKGDIR"
+
+APP_IN_PKG="$PKGDIR/MiniTools-SwiftUI.app"
+ditto "$APP" "$APP_IN_PKG"
+
+ZIP="$PKGDIR/MiniTools-SwiftUI-${VERSION}.zip"
+ditto -c -k --keepParent "$APP_IN_PKG" "$ZIP"
+SHASUM="$PKGDIR/MiniTools-SwiftUI-${VERSION}.zip.sha256"
+shasum -a 256 "$ZIP" | tee "$SHASUM"
 
 git push origin "$BRANCH"
 
@@ -85,11 +94,11 @@ fi
 echo ">>> 创建 GitHub Release 并上传 zip / checksum…"
 gh release create "$VERSION" \
   "$ZIP" \
-  "$ROOT/MiniTools-SwiftUI-${VERSION}.zip.sha256" \
+  "$SHASUM" \
   --target "$BRANCH" \
   --title "$VERSION" \
   --generate-notes \
   --latest
 
 echo ""
-echo "已完成: 打开仓库 Releases 页面即可下载 $VERSION 的安装包。"
+echo "已完成: 本机安装包目录 $PKGDIR（.app + zip + sha256）；GitHub Releases 可下载 $VERSION。"

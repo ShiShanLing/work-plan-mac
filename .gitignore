@@ -16,8 +16,7 @@ xcuserdata/
 # 本地一键发版脚本（scripts/release-local-gh.sh）
 build/ReleaseDerived/
 build/last-local-release-xcodebuild.log
-MiniTools-SwiftUI-v*.zip
-MiniTools-SwiftUI-v*.zip.sha256
+package/
 *.ipa
 *.dSYM.zip
 *.dSYM
