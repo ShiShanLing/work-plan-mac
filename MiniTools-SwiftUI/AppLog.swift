@@ -16,3 +16,4 @@ enum AppLog {
     static let store = Logger(subsystem: subsystem, category: "store")
     static let widget = Logger(subsystem: subsystem, category: "widget")
 }
+
