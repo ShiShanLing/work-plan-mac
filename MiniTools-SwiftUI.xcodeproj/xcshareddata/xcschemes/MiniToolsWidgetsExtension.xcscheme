@@ -30,7 +30,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "544A8D092F7B976D00FA73EC"
-               BuildableName = "MiniTools-SwiftUI.app"
+               BuildableName = "&#x5de5;&#x4f5c;&#x8ba1;&#x5212;.app"
                BlueprintName = "MiniTools-SwiftUI"
                ReferencedContainer = "container:MiniTools-SwiftUI.xcodeproj">
             </BuildableReference>
@@ -61,7 +61,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "544A8D092F7B976D00FA73EC"
-            BuildableName = "MiniTools-SwiftUI.app"
+            BuildableName = "&#x5de5;&#x4f5c;&#x8ba1;&#x5212;.app"
             BlueprintName = "MiniTools-SwiftUI"
             ReferencedContainer = "container:MiniTools-SwiftUI.xcodeproj">
          </BuildableReference>
@@ -80,7 +80,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "544A8D092F7B976D00FA73EC"
-            BuildableName = "MiniTools-SwiftUI.app"
+            BuildableName = "&#x5de5;&#x4f5c;&#x8ba1;&#x5212;.app"
             BlueprintName = "MiniTools-SwiftUI"
             ReferencedContainer = "container:MiniTools-SwiftUI.xcodeproj">
          </BuildableReference>

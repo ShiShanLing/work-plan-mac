@@ -10,25 +10,19 @@ import SwiftUI
 
 // MARK: - 模型
 
-/// 月历与「某日」弹层共用：默认展示未完成，可切换为仅查看已完成。
-private enum CalendarTaskCompletionFilter: String, CaseIterable, Identifiable {
-    case incomplete
-    case completed
-
-    var id: String { rawValue }
-
-    var shortLabel: String {
-        switch self {
-        case .incomplete: return "未完成"
-        case .completed: return "已完成"
-        }
-    }
-}
-
-private struct CalendarTaskRow: Identifiable {
+private struct CalendarTaskRow: Identifiable, Equatable {
     enum Kind: String {
         case oneTime = "定时"
         case recurring = "例行"
+        case checklist = "清单"
+
+        fileprivate var deleteHelp: String {
+            switch self {
+            case .oneTime: return "删除该定时提醒"
+            case .recurring: return "删除该例行任务（所有日期）"
+            case .checklist: return "删除该需求清单"
+            }
+        }
     }
 
     let id: String
@@ -36,9 +30,12 @@ private struct CalendarTaskRow: Identifiable {
     let title: String
     let detail: String
     var isCompleted: Bool
-    /// 一次性 / 例行 任务 id
+    /// 一次性 / 例行 / 需求清单 id
     let rawId: String
+    /// `true` 仅表示一次性提醒（删除分支用）。
     let isOneTime: Bool
+    /// 仅 `kind == .checklist` 时有效，用于月历条颜色。
+    let checklistTag: ProjectChecklistTag?
 }
 
 private enum MonthGridCell: Identifiable {
@@ -87,28 +84,30 @@ private enum TasksCalendarLogic {
         return cells
     }
 
-    static func tasks(
-        on ymd: String,
-        store: EfficiencyStore,
-        calendar cal: Calendar,
-        filter: CalendarTaskCompletionFilter
-    ) -> [CalendarTaskRow] {
+    /// 单日全部「定时 + 例行」（已完成与未完成一起展示）：未完成在前，已完成在后；勾选后仍留在列表中，仅样式变为已完成。
+    static func tasks(on ymd: String, store: EfficiencyStore, calendar cal: Calendar) -> [CalendarTaskRow] {
         guard let dayDate = LocalCalendarDate.parseLocalYmd(ymd, calendar: cal) else { return [] }
-        var rows: [CalendarTaskRow] = []
 
-        let oneTimes = store.oneTimeReminders
-            .filter { o in
-                guard o.dateYmd == ymd else { return false }
-                switch filter {
-                case .incomplete: return !o.isCompleted
-                case .completed: return o.isCompleted
-                }
-            }
+        let oneSorted = store.oneTimeReminders
+            .filter { $0.dateYmd == ymd }
             .sorted {
                 if $0.hour != $1.hour { return $0.hour < $1.hour }
                 return $0.minute < $1.minute
             }
-        for o in oneTimes {
+        let oneInc = oneSorted.filter { !$0.isCompleted }
+        let oneDone = oneSorted.filter(\.isCompleted)
+
+        let now = Date()
+        let recSorted = store.recurringTasks
+            .filter { t in
+                guard LocalCalendarDate.isTaskDueOn(recurrence: t.recurrence, ref: dayDate, calendar: cal) else { return false }
+                return !t.shouldOmitFromDisplay(on: ymd, now: now, calendar: cal)
+            }
+            .sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        let recInc = recSorted.filter { !$0.isCompleted(on: ymd) }
+        let recDone = recSorted.filter { $0.isCompleted(on: ymd) }
+
+        func appendOneTime(_ o: OneTimeReminder, rows: inout [CalendarTaskRow]) {
             let title = o.title.isEmpty ? "（无标题）" : o.title
             rows.append(CalendarTaskRow(
                 id: "o-\(o.id)",
@@ -117,22 +116,12 @@ private enum TasksCalendarLogic {
                 detail: String(format: "%02d:%02d", o.hour, o.minute),
                 isCompleted: o.isCompleted,
                 rawId: o.id,
-                isOneTime: true
+                isOneTime: true,
+                checklistTag: nil
             ))
         }
 
-        let recs = store.recurringTasks
-            .filter { t in
-                guard LocalCalendarDate.isTaskDueOn(recurrence: t.recurrence, ref: dayDate, calendar: cal) else { return false }
-                let done = t.isCompleted(on: ymd)
-                switch filter {
-                case .incomplete: return !done
-                case .completed: return done
-                }
-            }
-            .sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
-
-        for t in recs {
+        func appendRecurring(_ t: RecurringTask, rows: inout [CalendarTaskRow]) {
             let title = t.title.isEmpty ? "（无标题）" : t.title
             let done = t.isCompleted(on: ymd)
             let timeStr = String(format: "%02d:%02d", t.notifyHour, t.notifyMinute)
@@ -143,15 +132,42 @@ private enum TasksCalendarLogic {
                 detail: t.notifyEnabled ? "提醒 \(timeStr)" : "无时间提醒",
                 isCompleted: done,
                 rawId: t.id,
-                isOneTime: false
+                isOneTime: false,
+                checklistTag: nil
             ))
         }
 
+        func appendChecklist(_ p: ProjectChecklist, rows: inout [CalendarTaskRow]) {
+            let title = p.title.isEmpty ? "（无标题）" : p.title
+            rows.append(CalendarTaskRow(
+                id: "c-\(p.id)-\(ymd)",
+                kind: .checklist,
+                title: title,
+                detail: p.calendarDetailLine(),
+                isCompleted: p.isCompleted,
+                rawId: p.id,
+                isOneTime: false,
+                checklistTag: p.tag
+            ))
+        }
+
+        let pcBase = store.projectChecklists.filter { $0.showsOnCalendar(on: ymd) }
+        let pcSorted = pcBase.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        let pcInc = pcSorted.filter { !$0.isCompleted }
+        let pcDone = pcSorted.filter(\.isCompleted)
+
+        var rows: [CalendarTaskRow] = []
+        for o in oneInc { appendOneTime(o, rows: &rows) }
+        for t in recInc { appendRecurring(t, rows: &rows) }
+        for p in pcInc { appendChecklist(p, rows: &rows) }
+        for o in oneDone { appendOneTime(o, rows: &rows) }
+        for t in recDone { appendRecurring(t, rows: &rows) }
+        for p in pcDone { appendChecklist(p, rows: &rows) }
         return rows
     }
 
     /// 月历与详情行左侧竖线：未完成用饱和色，已用柔和色，仍区分定时 / 例行。
-    static func taskBarFill(kind: CalendarTaskRow.Kind, isCompleted: Bool) -> Color {
+    static func taskBarFill(kind: CalendarTaskRow.Kind, isCompleted: Bool, checklistTag: ProjectChecklistTag? = nil) -> Color {
         switch kind {
         case .oneTime:
             return isCompleted
@@ -161,6 +177,9 @@ private enum TasksCalendarLogic {
             return isCompleted
                 ? Color(red: 0.46, green: 0.64, blue: 0.52)
                 : Color.green
+        case .checklist:
+            let tag = checklistTag ?? .none
+            return tag.calendarStripeColor(isCompleted: isCompleted)
         }
     }
 }
@@ -172,7 +191,6 @@ struct TasksCalendarView: View {
 
     @State private var monthContaining: Date = Date()
     @State private var sheetDay: CalendarSheetDay?
-    @State private var taskCompletionFilter: CalendarTaskCompletionFilter = .incomplete
 
     private var calendar: Calendar {
         var cal = Calendar(identifier: .gregorian)
@@ -196,7 +214,7 @@ struct TasksCalendarView: View {
             monthChrome
             weekdayHeader
             calendarGrid
-            Text("使用上方「未完成 / 已完成」切换月历与当日列表。点击日期打开详情；未完成模式下可勾选并添加「定时提醒」。例行任务在「例行任务」页管理；时段提醒不在日历中展示。")
+            Text("月历与当日列表中，已完成与未完成事项会一起显示（未完成在上）；勾选完成后仍会保留在列表中。点击日期打开详情。需求清单须在「需求清单」中填写开始/截止日（至少一项）才会出现在月历。例行任务在「例行任务」页管理；时段提醒不出现在日历中。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
@@ -206,7 +224,7 @@ struct TasksCalendarView: View {
         .navigationTitle("日历")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .sheet(item: $sheetDay) { item in
-            CalendarDayTasksSheet(ymd: item.ymd, calendar: calendar, store: store, completionFilter: taskCompletionFilter)
+            CalendarDayTasksSheet(ymd: item.ymd, calendar: calendar, store: store)
         }
     }
 
@@ -231,14 +249,6 @@ struct TasksCalendarView: View {
             .buttonStyle(.borderless)
 
             Spacer()
-
-            Picker("事项状态", selection: $taskCompletionFilter) {
-                ForEach(CalendarTaskCompletionFilter.allCases) { mode in
-                    Text(mode.shortLabel).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(minWidth: 200)
 
             Button("本月") {
                 monthContaining = Date()
@@ -282,7 +292,7 @@ struct TasksCalendarView: View {
     }
 
     private func dayCell(ymd: String, dayNumber: Int) -> some View {
-        let tasks = TasksCalendarLogic.tasks(on: ymd, store: store, calendar: calendar, filter: taskCompletionFilter)
+        let tasks = TasksCalendarLogic.tasks(on: ymd, store: store, calendar: calendar)
         let isToday = ymd == LocalCalendarDate.localYmd(Date(), calendar: calendar)
         let hasTasks = !tasks.isEmpty
         let cellFill = cellBackground(hasTasks: hasTasks)
@@ -302,7 +312,7 @@ struct TasksCalendarView: View {
                 ForEach(Array(tasks.prefix(3).enumerated()), id: \.element.id) { _, row in
                     HStack(alignment: .center, spacing: 4) {
                         RoundedRectangle(cornerRadius: 1)
-                            .fill(TasksCalendarLogic.taskBarFill(kind: row.kind, isCompleted: row.isCompleted))
+                            .fill(TasksCalendarLogic.taskBarFill(kind: row.kind, isCompleted: row.isCompleted, checklistTag: row.checklistTag))
                             .frame(width: 3, height: 12)
                         Text(row.title)
                             .font(.caption2)
@@ -355,61 +365,105 @@ private struct CalendarDayTasksSheet: View {
     let ymd: String
     let calendar: Calendar
     let store: EfficiencyStore
-    let completionFilter: CalendarTaskCompletionFilter
 
     @State private var newOneTimeDraft: OneTimeReminder?
+    @State private var rowPendingDelete: CalendarTaskRow?
 
     private var list: [CalendarTaskRow] {
-        TasksCalendarLogic.tasks(on: ymd, store: store, calendar: calendar, filter: completionFilter)
+        TasksCalendarLogic.tasks(on: ymd, store: store, calendar: calendar)
+    }
+
+    /// 展示区域右下悬浮添加（不占用标题栏、不做横向色条）。
+    private var daySheetFloatingAddButton: some View {
+        Button {
+            openAddOneTime()
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .background {
+            Circle()
+                .fill(Color.accentColor)
+                .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+        }
+        .accessibilityLabel("添加定时提醒")
+        .help("添加定时提醒")
+        .keyboardShortcut(.defaultAction)
+    }
+
+    private var closeToolbarPlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        return .navigationBarTrailing
+        #else
+        return .cancellationAction
+        #endif
     }
 
     var body: some View {
         NavigationStack {
-            Group {
-                if list.isEmpty {
-                    VStack(spacing: 20) {
+            ZStack(alignment: .bottomTrailing) {
+                Group {
+                    if list.isEmpty {
                         ContentUnavailableView(
-                            emptySheetTitle,
+                            "当天暂无事项",
                             systemImage: "calendar",
-                            description: Text(emptySheetDescription)
+                            description: Text("点击右下角「＋」添加定时提醒（或按 Return）；例行任务请在「例行任务」中创建；带日期的需求清单在「需求清单」中维护。时段提醒仅出现在「时段提醒」页与小组件。")
                         )
-                        if completionFilter == .incomplete {
-                            Button {
-                                openAddOneTime()
-                            } label: {
-                                Label("添加定时提醒", systemImage: "plus.circle.fill")
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(24)
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(list) { row in
-                                dayDetailRow(row, ymd: ymd)
-                            }
-                            if completionFilter == .incomplete {
-                                Button {
-                                    openAddOneTime()
-                                } label: {
-                                    Label("添加定时提醒", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(24)
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(list) { row in
+                                    dayDetailRow(row, ymd: ymd)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 8)
                             }
+                            .padding(16)
+                            .padding(.bottom, 44)
                         }
-                        .padding(16)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                daySheetFloatingAddButton
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
             }
             .navigationTitle(formattedDayHeader(ymd))
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: closeToolbarPlacement) {
                     Button("关闭") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
+            }
+            .confirmationDialog(
+                deleteConfirmTitle,
+                isPresented: Binding(
+                    get: { rowPendingDelete != nil },
+                    set: { if !$0 { rowPendingDelete = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("删除", role: .destructive) {
+                    if let row = rowPendingDelete {
+                        switch row.kind {
+                        case .oneTime:
+                            store.deleteOneTimeReminder(id: row.rawId)
+                        case .recurring:
+                            store.deleteRecurringTask(id: row.rawId)
+                        case .checklist:
+                            store.deleteProjectChecklist(id: row.rawId)
+                        }
+                    }
+                    rowPendingDelete = nil
+                }
+                Button("取消", role: .cancel) { rowPendingDelete = nil }
+            } message: {
+                Text(deleteConfirmMessage)
             }
         }
         .frame(minWidth: 420, minHeight: 320)
@@ -418,24 +472,30 @@ private struct CalendarDayTasksSheet: View {
         }
     }
 
-    private var emptySheetTitle: String {
-        switch completionFilter {
-        case .incomplete: return "当天暂无未完成事项"
-        case .completed: return "当天暂无已完成事项"
-        }
-    }
-
-    private var emptySheetDescription: String {
-        switch completionFilter {
-        case .incomplete:
-            return "可添加定时提醒；例行任务请在「例行任务」中创建。时段提醒仅出现在「时段提醒」页与小组件。"
-        case .completed:
-            return "在「未完成」模式下勾选后，完成记录会出现在这里。也可切回月历查看其它日期。"
-        }
-    }
-
     private func openAddOneTime() {
         newOneTimeDraft = OneTimeReminder.newDraftForCalendarDay(ymd: ymd, calendar: calendar)
+    }
+
+    private var deleteConfirmTitle: String {
+        guard let row = rowPendingDelete else { return "删除" }
+        switch row.kind {
+        case .oneTime: return "删除定时提醒"
+        case .recurring: return "删除例行任务"
+        case .checklist: return "删除需求清单"
+        }
+    }
+
+    private var deleteConfirmMessage: String {
+        guard let row = rowPendingDelete else { return "" }
+        let name = row.title
+        switch row.kind {
+        case .oneTime:
+            return "确定删除「\(name)」？将一并取消尚未触发的通知。"
+        case .recurring:
+            return "确定删除「\(name)」？此为例行任务：将从所有日期移除，并取消已排定的提醒。"
+        case .checklist:
+            return "确定删除「\(name)」？清单及子项将从本机移除，不可撤销。"
+        }
     }
 
     private func formattedDayHeader(_ ymd: String) -> String {
@@ -447,29 +507,39 @@ private struct CalendarDayTasksSheet: View {
     }
 
     private func dayDetailRowLiveCompleted(_ row: CalendarTaskRow, ymd: String) -> Bool {
-        if row.isOneTime {
+        switch row.kind {
+        case .oneTime:
             return store.oneTimeReminders.first(where: { $0.id == row.rawId })?.isCompleted ?? false
+        case .recurring:
+            return store.recurringTasks.first(where: { $0.id == row.rawId })?.isCompleted(on: ymd) ?? false
+        case .checklist:
+            return store.projectChecklists.first(where: { $0.id == row.rawId })?.isCompleted ?? false
         }
-        return store.recurringTasks.first(where: { $0.id == row.rawId })?.isCompleted(on: ymd) ?? false
     }
 
     private func dayDetailRow(_ row: CalendarTaskRow, ymd: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        let done = dayDetailRowLiveCompleted(row, ymd: ymd)
+        let barFill = TasksCalendarLogic.taskBarFill(kind: row.kind, isCompleted: done, checklistTag: row.checklistTag)
+        return HStack(alignment: .top, spacing: 10) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(TasksCalendarLogic.taskBarFill(kind: row.kind, isCompleted: dayDetailRowLiveCompleted(row, ymd: ymd)))
+                .fill(barFill)
                 .frame(width: 4, height: 40)
+                .opacity(done ? 0.85 : 1)
                 .accessibilityHidden(true)
             Toggle(isOn: Binding(
                 get: {
                     dayDetailRowLiveCompleted(row, ymd: ymd)
                 },
                 set: { v in
-                    if row.isOneTime {
+                    switch row.kind {
+                    case .oneTime:
                         Task { @MainActor in
                             await store.setOneTimeReminderCompleted(id: row.rawId, completed: v)
                         }
-                    } else {
+                    case .recurring:
                         store.setTaskCompleted(taskId: row.rawId, ymd: ymd, done: v)
+                    case .checklist:
+                        store.setProjectChecklistCompleted(id: row.rawId, completed: v)
                     }
                 }
             )) {
@@ -477,23 +547,43 @@ private struct CalendarDayTasksSheet: View {
                     HStack(spacing: 6) {
                         Text(row.kind.rawValue)
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(done ? .tertiary : .secondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                            .background(Capsule().fill(done ? Color.secondary.opacity(0.07) : Color.secondary.opacity(0.14)))
                         Text(row.title)
                             .font(.subheadline.weight(.medium))
+                            .foregroundStyle(done ? .tertiary : .primary)
+                            .strikethrough(done, color: .secondary)
                     }
                     Text(row.detail)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(done ? .tertiary : .secondary)
+                        .strikethrough(done, color: Color.secondary.opacity(0.8))
                 }
             }
             .toggleStyle(.checkbox)
+            Button {
+                rowPendingDelete = row
+            } label: {
+                Image(systemName: "trash")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(row.kind.deleteHelp)
+            .accessibilityLabel("删除")
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(done ? Color(nsColor: .controlBackgroundColor).opacity(0.55) : Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(done ? Color.secondary.opacity(0.22) : Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 1)
+        )
     }
 }
 

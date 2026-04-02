@@ -72,7 +72,7 @@ struct HourlyWindowTasksView: View {
         ) {
             Button("删除", role: .destructive) {
                 if let t = pendingDelete {
-                    store.deleteHourlyWindowTask(id: t.id)
+                    Task { await store.deleteHourlyWindowTask(id: t.id) }
                 }
                 pendingDelete = nil
             }
@@ -86,14 +86,32 @@ struct HourlyWindowTasksView: View {
 
     @ViewBuilder
     private func taskRow(_ task: HourlyWindowTask) -> some View {
+        let live = store.hourlyWindowTasks.first(where: { $0.id == task.id }) ?? task
+        let todayYmd = LocalCalendarDate.localYmd(Date())
+        let todayNoMoreAlerts = live.isCompleted(on: todayYmd)
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(task.title.isEmpty ? "（无标题）" : task.title)
+                Text(live.title.isEmpty ? "（无标题）" : live.title)
                     .font(.headline)
-                Text(task.summaryScheduleLabel())
+                    .foregroundStyle(todayNoMoreAlerts ? .secondary : .primary)
+                Text(live.summaryScheduleLabel())
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if task.notifyEnabled, notifier.isAuthorizationDenied {
+                if todayNoMoreAlerts {
+                    Text("今日：不再提示 / 已完成（与通知上「不再提示」相同，今天不会再响）")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Button("恢复今日提醒") {
+                        Task { await store.restoreHourlyWindowTodaySchedule(taskId: live.id) }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .controlSize(.small)
+                } else if !live.notifyEnabled {
+                    Text("未开启系统提醒（仅备忘）")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else if live.notifyEnabled, notifier.isAuthorizationDenied {
                     Text("通知权限被拒")
                         .font(.caption)
                         .foregroundStyle(.orange)
@@ -101,20 +119,30 @@ struct HourlyWindowTasksView: View {
             }
             Spacer(minLength: 8)
             Button {
-                sheetTask = task
+                sheetTask = live
             } label: {
                 Image(systemName: "pencil.circle")
             }
             .buttonStyle(.borderless)
+            .disabled(todayNoMoreAlerts)
+            .opacity(todayNoMoreAlerts ? 0.35 : 1)
+            .help(
+                todayNoMoreAlerts
+                    ? "今日已点「不再提示」或标为完成，不能再编辑；请先点「恢复今日提醒」或等到次日。"
+                    : "编辑"
+            )
             Button {
-                pendingDelete = task
+                pendingDelete = live
             } label: {
                 Image(systemName: "trash.circle")
             }
             .buttonStyle(.borderless)
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(todayNoMoreAlerts ? Color(nsColor: .controlBackgroundColor).opacity(0.72) : Color(nsColor: .controlBackgroundColor))
+        )
     }
 }
 
@@ -131,6 +159,11 @@ private struct HourlyWindowTaskEditSheet: View {
     @State private var alertMessage: String?
 
     private let isNew: Bool
+
+    /// 今日已在通知中点「不再提示」或同等完成态：与定时提醒「已完成」一样，保存也不会让今天再响。
+    private var editingBlockedForToday: Bool {
+        !isNew && draft.isCompleted(on: LocalCalendarDate.localYmd(Date()))
+    }
 
     private var datePickerHint: String {
         let cal = Calendar.current
@@ -171,6 +204,14 @@ private struct HourlyWindowTaskEditSheet: View {
                 .font(.title2.bold())
                 .padding(.bottom, 12)
 
+            if editingBlockedForToday {
+                Text("今日已将此时段标为「已完成 / 不再提示」，系统今天不会再响。请先关闭本页，在列表点「恢复今日提醒」后再编辑；或次日再编辑。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 10)
+            }
+
             Form {
                 TextField("名称", text: $draft.title)
                     .textFieldStyle(.roundedBorder)
@@ -200,12 +241,14 @@ private struct HourlyWindowTaskEditSheet: View {
                 Toggle("到点本地提醒（每一档触发时刻各一次）", isOn: $draft.notifyEnabled)
             }
             .formStyle(.grouped)
+            .disabled(editingBlockedForToday)
 
             HStack {
                 Spacer()
                 Button("取消") { dismiss() }
                 Button("保存") { Task { await save() } }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(editingBlockedForToday)
             }
             .padding(.top, 12)
         }
@@ -223,6 +266,10 @@ private struct HourlyWindowTaskEditSheet: View {
 
     @MainActor
     private func save() async {
+        if editingBlockedForToday {
+            alertMessage = "今日已「不再提示 / 完成」。请先在列表点「恢复今日提醒」。"
+            return
+        }
         let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if title.isEmpty {
             alertMessage = "请填写任务名称"

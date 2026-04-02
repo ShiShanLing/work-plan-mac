@@ -30,6 +30,11 @@ struct OneTimeReminderEditSheet: View {
 
     @State private var alertMessage: String?
 
+    /// 已完成的一次性提醒不会预约通知；避免误编辑以为改完还会继续响。
+    private var editingBlockedByCompleted: Bool {
+        !isNew && draft.isCompleted
+    }
+
     init(store: EfficiencyStore, reminder: OneTimeReminder, isNew: Bool, lockDateYmd: String? = nil) {
         self.store = store
         self.isNew = isNew
@@ -83,6 +88,14 @@ struct OneTimeReminderEditSheet: View {
                 .font(.title2.bold())
                 .padding(.bottom, 12)
 
+            if editingBlockedByCompleted {
+                Text("此项已勾选为「已完成」，不会发送通知。若需修改内容或时间，请先在列表中取消「已完成」后再打开编辑。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 10)
+            }
+
             Form {
                 TextField("要做什么事", text: $draft.title)
                     .textFieldStyle(.roundedBorder)
@@ -103,12 +116,14 @@ struct OneTimeReminderEditSheet: View {
                     .foregroundStyle(.secondary)
             }
             .formStyle(.grouped)
+            .disabled(editingBlockedByCompleted)
 
             HStack {
                 Spacer()
                 Button("取消") { dismiss() }
                 Button("保存") { Task { await save() } }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(editingBlockedByCompleted)
             }
             .padding(.top, 12)
         }
@@ -128,6 +143,10 @@ struct OneTimeReminderEditSheet: View {
 
     @MainActor
     private func save() async {
+        if editingBlockedByCompleted {
+            alertMessage = "已完成的任务不会发通知。请先在列表取消「已完成」后再编辑。"
+            return
+        }
         let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if title.isEmpty {
             alertMessage = "请填写提醒内容"

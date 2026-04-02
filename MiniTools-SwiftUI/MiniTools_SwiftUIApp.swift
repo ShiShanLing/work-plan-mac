@@ -11,6 +11,12 @@ import SwiftUI
 struct MiniTools_SwiftUIApp: App {
     @State private var store = EfficiencyStore()
 
+    init() {
+        // AppKit 悬停提示（`.help`、NSView.toolTip）默认约 1000ms 后才出现；改用更短初始延迟（毫秒）。
+        // 见 `NSInitialToolTipDelay`；`registerDefaults` 不覆盖用户已在「终端 defaults」里写过的值。
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 400])
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

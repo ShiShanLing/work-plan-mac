@@ -6,6 +6,8 @@
     "release": "bash scripts/release.sh",
     "release:local": "bash scripts/release-local-gh.sh",
     "core:test": "cd MiniToolsCore && swift test",
-    "mac:build": "xcodebuild -scheme MiniTools-SwiftUI -project MiniTools-SwiftUI.xcodeproj -destination 'platform=macOS' build"
+    "mac:build": "xcodebuild -scheme MiniTools-SwiftUI -project MiniTools-SwiftUI.xcodeproj -destination 'platform=macOS' build",
+    "clean:caches": "bash scripts/clean-caches.sh",
+    "clean:caches:yes": "bash scripts/clean-caches.sh -y"
   }
 }

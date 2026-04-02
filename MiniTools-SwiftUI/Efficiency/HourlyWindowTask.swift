@@ -121,7 +121,7 @@ struct HourlyWindowTask: Codable, Identifiable, Equatable, Sendable {
             windowEndMinute: 30,
             windowEndDayOffset: 0,
             weekdaysOnly: true,
-            notifyEnabled: false,
+            notifyEnabled: true,
             notificationIds: [],
             createdAt: LocalCalendarDate.localYmd(Date(), calendar: calendar),
             completedYmds: []

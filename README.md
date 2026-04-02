@@ -1,4 +1,4 @@
-# MiniTools（SwiftUI）
+# 工作计划（SwiftUI）
 
 一款面向 **macOS** 的**本地提醒与例行事项**小工具：用系统通知帮你记住一次性事项、重复习惯，以及在指定时段内按间隔提醒；数据保存在本机，并支持**桌面小组件**快速扫一眼今日安排。
 
@@ -38,6 +38,39 @@
 
 ---
 
+## 相关页面
+
+### 定时提醒，设置某个时间系统通知提醒，可以在系统的通知中选择一小时后提醒，或者标记完成
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/e10d90405f704915b3a17222ae48fa8b~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775118561&x-orig-sign=YJzUTuQWvKH%2FIsUZjM2BLlSZn6g%3D" alt="image.png" width="70%" />
+
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/f5225eb6bff442439b10604fa8bd3a77~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775119184&x-orig-sign=S2kxBcOBJn5%2Fwe4FgbLkOpFgSj8%3D" alt="image.png" width="70%" />
+
+### 例行任务。可以设置每天、每N天、每周、每月、每年提醒的几点几分发送系统通知，可以设置跳过周末提醒。
+
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/8ec2802e0c9e48a3a822bc919f713372~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775118744&x-orig-sign=gwq1mNjdkI%2Fc85Yq%2Fg%2BKA3QT%2BpM%3D" alt="image.png" width="70%" />
+
+
+### 时段任务。每隔多少分钟提醒，可以在通知中选择不再提醒。
+
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/25a88f67bb7043ae82e85bcfb3b7eb63~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775118945&x-orig-sign=gZADsntCd%2B5o9RlFfow9VyQ5EdU%3D" alt="image.png" width="70%" />
+
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/c51ae2d06d094737b525374a09ca23b3~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775119145&x-orig-sign=YA717LLchRpnMYYGa3uUVw8TFXI%3D" alt="image.png" width="70%" />
+
+### 日历中可以查看哪一天有什么任务，并且可以标记完成或者删除任务，也可以添加新的```定时任务```。
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/093bf4e10ed845d4be7b92631edfb489~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775119325&x-orig-sign=4mBBbhXtHBuXIBD1wefvyVoc6Bo%3D" alt="image.png" width="70%" />
+
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/816994fc06754c869f0a4d6bcd20814d~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775119352&x-orig-sign=t2r5K8Esh3S5LDl3e6scPG08bGo%3D" alt="image.png" width="70%" />
+
+
+<img src="https://p0-xtjj-private.juejin.cn/tos-cn-i-73owjymdk6/c535eecd2439476e87fc406eb19f842c~tplv-73owjymdk6-jj-mark-v1:0:0:0:0:5o6Y6YeR5oqA5pyv56S-5Yy6IEAg55-z5bGx5bKt:q75.awebp?policy=eyJ2bSI6MywidWlkIjoiMTY0NDUyNTEyNTEyMjEzNSJ9&rk3s=e9ecf3d6&x-orig-authkey=f32326d3454f2ac7e96d3d06cdbb035152127018&x-orig-expires=1775119378&x-orig-sign=mX%2BeUO1P7CYk1ZyRSLCGBe7%2FxYE%3D" alt="image.png" width="70%" />
+
 ## 系统要求
 
 - **macOS**（建议与 Xcode 工程中的部署目标一致，当前工程面向较新的 macOS SDK 构建，具体以 Release 构建为准）。  
@@ -64,22 +97,11 @@
 
 ---
 
-## 社交平台上「一句话 + 短文」介绍（可照搬或改写）
 
-**一句话：**  
-Mac 上一款**纯本地**的提醒小工具：定时提醒、例行任务、时段内间隔提醒，再加月历总览和今日小组件，数据留在本机，适合想轻量管理节奏又不想开复杂待办应用的人。
 
-**短文（适合掘金 / 知乎动态）：**
 
-> 最近在用自己做的一个小 Mac 应用 **MiniTools**：专注「**提醒 + 例行 + 时段**」三件事。  
-> **定时提醒**管一次性节点；**例行任务**支持每天 / 每 N 天 / 周月季年；**时段提醒**适合在一段固定时间里按间隔敲你一下（比如定时起来动动）。  
-> **日历**页用月视图把定时与例行叠在日期格子里，**小组件**扫一眼今日下一件啥时发生。  
-> 数据都走本机存储，配合系统通知；如果你也厌烦大而全的 GTD 工具，只想轻量控节奏，可以试试看。  
-> 源码与安装包：<https://github.com/ShiShanLing/work-plan-mac>
 
-（发布时请按平台规范附 **下载来源**、**截图** 与 **免责声明**：非 App Store 分发时需说明用户需在「隐私与安全」中允许打开等。）
 
----
 
 ## 反馈与参与（公开项目）
 

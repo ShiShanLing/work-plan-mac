@@ -13,6 +13,9 @@ struct ContentView: View {
     @ObservedObject private var notifier = NotificationScheduler.shared
 
     @State private var showLaunchSplash = true
+    #if DEBUG
+    @State private var showPurgeNotificationsConfirm = false
+    #endif
 
     var body: some View {
         ZStack {
@@ -38,6 +41,23 @@ struct ContentView: View {
         .onAppear {
             NotificationScheduler.shared.efficiencyStore = store
         }
+        #if DEBUG
+        .confirmationDialog(
+            "如何处理本地通知？",
+            isPresented: $showPurgeNotificationsConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("全部清空（含未来已排程），暂不重新排程", role: .destructive) {
+                store.clearAllNotificationsOnlyPersistIds()
+            }
+            Button("清空后按当前任务重新排程", role: .destructive) {
+                Task { await store.purgeAllNotificationQueueAndResync() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("两种方式都会删掉系统中尚未触发的全部提醒，并清空通知中心里本应用已送达的条目。前者在重启、回桌面后也不会自动再排程，直到你编辑某条任务或在通知里完成操作；后者会立刻为现有任务重新排队。")
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -61,6 +81,27 @@ struct ContentView: View {
                 .background(Color.orange.opacity(0.12))
             }
 
+            #if DEBUG
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "trash.circle")
+                    .foregroundStyle(.secondary)
+                Text("可一键清空本应用全部本地通知（含未来已排程）。可选只清空不排程，或清空后按当前任务重排。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("清除通知队列…") {
+                    showPurgeNotificationsConfirm = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!store.hasCompletedInitialLoad)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.gray.opacity(0.08))
+            #endif
+
             TabView {
                 NavigationStack {
                     OneTimeRemindersView()
@@ -76,6 +117,12 @@ struct ContentView: View {
                     HourlyWindowTasksView()
                 }
                 .tabItem { Label("时段提醒", systemImage: "clock.arrow.2.circlepath") }
+
+                NavigationStack {
+                    // 与另几页一致；侧栏已改为页内 HStack，不再使用会占用窗口根分割区域的 HSplitView。
+                    ProjectChecklistsView()
+                }
+                .tabItem { Label("需求清单", systemImage: "checklist") }
 
                 NavigationStack {
                     TasksCalendarView()

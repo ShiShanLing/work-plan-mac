@@ -11,8 +11,9 @@
 #
 # 说明：推送到 GitHub 的 tag + Release 由 gh 创建；请把仓库变量 USE_CLOUD_RELEASE 关掉（勿设为 true），
 #       否则 tag 仍会触发云端 workflow（见 .github/workflows/release-macos.yml）。
-# 产物目录：**仅清空本机 package/**（删除本地旧 .app / zip / sha256，只保留当次构建）；GitHub 上已有 Release **不会删除**。
+# 产物：发版过程中会重建 package/；**GitHub Release 上传成功后**会再清理本机 package/、默认 DerivedData 的 **Debug 产物**、根目录 zip/sha256、**build/ReleaseDerived**（与上传无关的本地安装包一并删掉，省空间）。
 # 若 VERSION 对应的 Release 已在 GitHub 存在，脚本会报错退出，请改用新版本号。
+# 主应用产物名为「工作计划.app」（PRODUCT_NAME）；zip 文件名仍为 MiniTools-SwiftUI-${VERSION}.zip，与历史 Release 习惯一致。
 
 set -euo pipefail
 
@@ -26,8 +27,8 @@ cd "$ROOT"
 rm -f "$ROOT"/MiniTools-SwiftUI-v*.zip "$ROOT"/MiniTools-SwiftUI-v*.zip.sha256 2>/dev/null || true
 
 # ======================== 可配置（每次发版只改这里） ========================
-VERSION="v1.0.9"
-COMMIT_MSG="github 打包错误问题处理"
+VERSION="v1.0.14"
+COMMIT_MSG="新增需求清单功能"
 BRANCH="dev"
 # ==========================================================================
 
@@ -55,6 +56,11 @@ else
   git commit -m "$COMMIT_MSG"
 fi
 
+# 本仓库固定用此 DerivedData；产物形如：
+#   build/ReleaseDerived/Build/Products/Release/工作计划.app
+# 小组件 / 桌面用 URL 打开应用时，系统会启动「当前已注册的」那一份 .app：若你曾从该 Release 路径运行或
+# 装过这一份，而平时用 ⌘R 跑的是 Xcode 默认 Debug 产物，则会出现两套二进制（现已统一读写
+# Group Containers/.../MiniToolsData，但仍有必要知道打开的是哪一份构建）。
 DERIVED="$ROOT/build/ReleaseDerived"
 rm -rf "$DERIVED"
 mkdir -p "$ROOT/build"
@@ -69,9 +75,9 @@ xcodebuild \
   -derivedDataPath "$DERIVED" \
   build | tee "$ROOT/build/last-local-release-xcodebuild.log"
 
-APP="$(find "$DERIVED" -name 'MiniTools-SwiftUI.app' -type d | head -1)"
+APP="$(find "$DERIVED" -name '工作计划.app' -type d | head -1)"
 if [[ -z "$APP" ]] || [[ ! -d "$APP" ]]; then
-  echo "错误: 未找到 MiniTools-SwiftUI.app，请查看 build/last-local-release-xcodebuild.log"
+  echo "错误: 未找到 工作计划.app，请查看 build/last-local-release-xcodebuild.log"
   exit 1
 fi
 
@@ -80,7 +86,7 @@ PKGDIR="$ROOT/package"
 rm -rf "$PKGDIR"
 mkdir -p "$PKGDIR"
 
-APP_IN_PKG="$PKGDIR/MiniTools-SwiftUI.app"
+APP_IN_PKG="$PKGDIR/工作计划.app"
 ditto "$APP" "$APP_IN_PKG"
 
 ZIP="$PKGDIR/MiniTools-SwiftUI-${VERSION}.zip"
@@ -101,9 +107,48 @@ gh release create "$VERSION" \
   "$ZIP" \
   "$SHASUM" \
   --target "$BRANCH" \
-  --title "$VERSION" \
+  --title "$VERSION · $COMMIT_MSG" \
   --generate-notes \
   --latest
 
+# ---------- GitHub 上传成功后：清理本机 Debug 产物、package、其它本地安装包残留 ----------
+cleanup_after_release_uploaded() {
+  echo ""
+  echo ">>> GitHub Release 上传成功，清理本机产物（Debug DerivedData、package/、根目录 zip、ReleaseDerived）…"
+
+  # Xcode 目录名为 MiniTools-SwiftUI-<随机后缀>，用 find 按前缀匹配，不依赖具体 hash。
+  local xcode_derived="${HOME}/Library/Developer/Xcode/DerivedData"
+  if [[ -d "$xcode_derived" ]]; then
+    while IFS= read -r -d '' dd; do
+      local dbg="${dd}/Build/Products/Debug"
+      if [[ -d "$dbg" ]]; then
+        echo "  删除: $dbg"
+        rm -rf "$dbg"
+      fi
+    done < <(find "$xcode_derived" -maxdepth 1 -type d -name 'MiniTools-SwiftUI-*' -print0 2>/dev/null || true)
+  fi
+
+  shopt -s nullglob
+  for f in "${ROOT}"/MiniTools-SwiftUI*.zip "${ROOT}"/MiniTools-SwiftUI*.zip.sha256; do
+    [[ -e "$f" ]] || continue
+    echo "  删除: $f"
+    rm -f "$f"
+  done
+  shopt -u nullglob
+
+  if [[ -d "${ROOT}/package" ]]; then
+    echo "  删除: ${ROOT}/package"
+    rm -rf "${ROOT}/package"
+  fi
+
+  if [[ -d "${ROOT}/build/ReleaseDerived" ]]; then
+    echo "  删除: ${ROOT}/build/ReleaseDerived"
+    rm -rf "${ROOT}/build/ReleaseDerived"
+  fi
+
+  echo ">>> 本地清理完成。Release 文件已在 GitHub，本机仅保留 git 仓库与脚本日志等。"
+}
+cleanup_after_release_uploaded
+
 echo ""
-echo "已完成: 本机安装包目录 $PKGDIR（.app + zip + sha256）；GitHub Releases 可下载 $VERSION。"
+echo "已完成: GitHub Releases 可下载 $VERSION（本机 package/ 与上述产物已按策略清除）。"

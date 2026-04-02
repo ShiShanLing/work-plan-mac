@@ -80,27 +80,55 @@ struct OneTimeReminder: Codable, Identifiable, Equatable, Sendable {
         "onetime-\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(8))"
     }
 
-    /// 默认可提醒时刻：下一个本地 9:00（若今日 9 点已过则用明日 9:00）。
+    /// 默认**日期始终为今天**；时刻优先今日 9:00，若已过则用「当前时刻之后」的最近整分（仍落在今天；若已过午夜边缘则退为今日 23:59）。
     static func `default`(calendar: Calendar = .current) -> OneTimeReminder {
-        let todayStart = calendar.startOfDay(for: Date())
-        var comps = calendar.dateComponents([.year, .month, .day], from: todayStart)
+        let now = Date()
+        let todayYmd = LocalCalendarDate.localYmd(now, calendar: calendar)
+        guard let dayStart = LocalCalendarDate.parseLocalYmd(todayYmd, calendar: calendar) else {
+            let fd = roundToMinute(now, calendar: calendar)
+            return OneTimeReminder(
+                id: newId(),
+                title: "",
+                dateYmd: todayYmd,
+                hour: calendar.component(.hour, from: fd),
+                minute: calendar.component(.minute, from: fd),
+                notifyEnabled: true,
+                notificationIds: [],
+                createdAt: LocalCalendarDate.localYmd(Date(), calendar: calendar),
+                isCompleted: false
+            )
+        }
+
+        var comps = calendar.dateComponents([.year, .month, .day], from: dayStart)
         comps.hour = 9
         comps.minute = 0
         comps.second = 0
-        var fire = calendar.date(from: comps) ?? Date()
-        if fire <= Date() {
-            fire = calendar.date(byAdding: .day, value: 1, to: fire) ?? fire
+        let nineToday = calendar.date(from: comps) ?? now
+
+        let fire: Date
+        if nineToday > now {
+            fire = nineToday
+        } else {
+            let step = calendar.date(byAdding: .minute, value: 1, to: now) ?? now
+            var candidate = roundToMinute(step, calendar: calendar)
+            if !calendar.isDate(candidate, inSameDayAs: dayStart) || candidate <= now {
+                comps.hour = 23
+                comps.minute = 59
+                comps.second = 0
+                candidate = calendar.date(from: comps) ?? candidate
+            }
+            fire = candidate
         }
-        fire = roundToMinute(fire, calendar: calendar)
-        let ymd = LocalCalendarDate.localYmd(fire, calendar: calendar)
-        let h = calendar.component(.hour, from: fire)
-        let m = calendar.component(.minute, from: fire)
+
+        let rounded = roundToMinute(fire, calendar: calendar)
+        let h = calendar.component(.hour, from: rounded)
+        let mi = calendar.component(.minute, from: rounded)
         return OneTimeReminder(
             id: newId(),
             title: "",
-            dateYmd: ymd,
+            dateYmd: todayYmd,
             hour: h,
-            minute: m,
+            minute: mi,
             notifyEnabled: true,
             notificationIds: [],
             createdAt: LocalCalendarDate.localYmd(Date(), calendar: calendar),
@@ -109,6 +137,28 @@ struct OneTimeReminder: Codable, Identifiable, Equatable, Sendable {
     }
 
     /// 日历上选中某日时新建定时提醒：日期为该日，时刻默认当天 9:00（可在编辑页修改）。
+    /// 从需求清单/子任务预填：日期取清单截止或开始日，否则今日；标题为「清单 · 子任务」或仅清单名。
+    static func draftFromChecklistHint(
+        checklistTitle: String,
+        subtaskTitle: String?,
+        dateYmd: String,
+        calendar: Calendar = .current
+    ) -> OneTimeReminder {
+        var r = newDraftForCalendarDay(ymd: dateYmd, calendar: calendar)
+        let c = checklistTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let s = subtaskTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !s.isEmpty {
+            if c.isEmpty {
+                r.title = s
+            } else {
+                r.title = "\(c) · \(s)"
+            }
+        } else {
+            r.title = c.isEmpty ? "需求清单" : c
+        }
+        return r
+    }
+
     static func newDraftForCalendarDay(ymd: String, calendar: Calendar = .current) -> OneTimeReminder {
         guard let dayStart = LocalCalendarDate.parseLocalYmd(ymd, calendar: calendar) else {
             return Self.default(calendar: calendar)
