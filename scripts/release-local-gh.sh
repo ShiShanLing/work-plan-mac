@@ -107,7 +107,7 @@ gh release create "$VERSION" \
   "$ZIP" \
   "$SHASUM" \
   --target "$BRANCH" \
-  --title "$VERSION" \
+  --title "$VERSION · $COMMIT_MSG" \
   --generate-notes \
   --latest
 

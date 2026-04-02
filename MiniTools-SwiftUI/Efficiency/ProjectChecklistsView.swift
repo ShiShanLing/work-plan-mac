@@ -130,7 +130,7 @@ struct ProjectChecklistsView: View {
             HStack(alignment: .center) {
                 Text("需求清单")
                     .font(.title3.weight(.semibold))
-                Spacer(minLength: 8)
+                Spacer(minLength: 8) 
                 Button {
                     editDraft = ProjectChecklist.newDraft()
                 } label: {
