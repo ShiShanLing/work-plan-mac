@@ -9,6 +9,14 @@ import Foundation
 enum WidgetDeepLink {
     private static let scheme = "minitools"
 
+    /// 仅唤起主应用（不勾选）；用在 `.widgetURL`，使点心圆圈 / `Link` 以外区域也能点进 App。
+    static var openAppURL: URL {
+        var c = URLComponents()
+        c.scheme = scheme
+        c.host = "open"
+        return c.url!
+    }
+
     static func completeURL(for row: TodayRowData) -> URL? {
         var c = URLComponents()
         c.scheme = scheme

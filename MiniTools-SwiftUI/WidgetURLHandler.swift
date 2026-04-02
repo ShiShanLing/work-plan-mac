@@ -12,7 +12,9 @@ enum WidgetURLHandler {
 
     @MainActor
     static func handle(_ url: URL, store: EfficiencyStore) async {
-        guard url.scheme == scheme, url.host == "complete" else { return }
+        guard url.scheme == scheme else { return }
+        // `minitools://open`：仅由小组件 `.widgetURL` 唤起应用，无需写盘。
+        guard url.host == "complete" else { return }
         let items = queryItems(url)
         guard let type = items["type"] else { return }
 
