@@ -116,14 +116,19 @@ cleanup_after_release_uploaded() {
   echo ""
   echo ">>> GitHub Release 上传成功，清理本机产物（Debug DerivedData、package/、根目录 zip、ReleaseDerived）…"
 
+  # Xcode 目录名为 MiniTools-SwiftUI-<随机后缀>，用 find 按前缀匹配，不依赖具体 hash。
+  local xcode_derived="${HOME}/Library/Developer/Xcode/DerivedData"
+  if [[ -d "$xcode_derived" ]]; then
+    while IFS= read -r -d '' dd; do
+      local dbg="${dd}/Build/Products/Debug"
+      if [[ -d "$dbg" ]]; then
+        echo "  删除: $dbg"
+        rm -rf "$dbg"
+      fi
+    done < <(find "$xcode_derived" -maxdepth 1 -type d -name 'MiniTools-SwiftUI-*' -print0 2>/dev/null || true)
+  fi
+
   shopt -s nullglob
-  for dd in "${HOME}/Library/Developer/Xcode/DerivedData"/MiniTools-SwiftUI-*; do
-    local dbg="${dd}/Build/Products/Debug"
-    if [[ -d "$dbg" ]]; then
-      echo "  删除: $dbg"
-      rm -rf "$dbg"
-    fi
-  done
   for f in "${ROOT}"/MiniTools-SwiftUI*.zip "${ROOT}"/MiniTools-SwiftUI*.zip.sha256; do
     [[ -e "$f" ]] || continue
     echo "  删除: $f"
