@@ -48,20 +48,28 @@ private struct AppRootView: View {
     }
 
     private func bringMainWindowToFront(openWindow: OpenWindowAction) {
-        let app = NSApplication.shared
-        app.activate(ignoringOtherApps: true)
-        app.unhide(nil)
+        // 延后到下一轮 RunLoop：与 WidgetKit 打开 URL 的时序更合拍。
+        // 注意：最小化窗口的 `canBecomeKey` 为 false，不能只用 canBecomeKey 过滤，否则会误判为「无窗口」而 duplicate openWindow。
+        DispatchQueue.main.async {
+            let app = NSApplication.shared
+            app.activate(ignoringOtherApps: true)
+            app.unhide(nil)
 
-        let keyed = app.windows.filter(\.canBecomeKey)
-        if keyed.isEmpty {
-            openWindow(id: "main")
-            return
-        }
-        for w in keyed {
-            if w.isMiniaturized {
-                w.deminiaturize(nil)
+            let candidates = app.windows.filter { w in
+                w.level == .normal && !w.isSheet && w.styleMask.contains(.titled)
             }
-            w.makeKeyAndOrderFront(nil)
+
+            guard !candidates.isEmpty else {
+                openWindow(id: "main")
+                return
+            }
+
+            for w in candidates {
+                if w.isMiniaturized {
+                    w.deminiaturize(nil)
+                }
+                w.makeKeyAndOrderFront(nil)
+            }
         }
     }
 }

@@ -64,29 +64,11 @@ private enum PreviewDeepLink {
         return c.url
     }
 
-    static func completeURL(forNextUp info: PreviewNextUp) -> URL? {
+    static var openAppURL: URL {
         var c = URLComponents()
         c.scheme = scheme
-        c.host = "complete"
-        if info.isOneTime {
-            c.queryItems = [
-                URLQueryItem(name: "type", value: "onetime"),
-                URLQueryItem(name: "id", value: info.rawId),
-            ]
-        } else if info.isHourly {
-            c.queryItems = [
-                URLQueryItem(name: "type", value: "hourly"),
-                URLQueryItem(name: "id", value: info.rawId),
-                URLQueryItem(name: "ymd", value: info.ymdForRecurring),
-            ]
-        } else {
-            c.queryItems = [
-                URLQueryItem(name: "type", value: "recurring"),
-                URLQueryItem(name: "id", value: info.rawId),
-                URLQueryItem(name: "ymd", value: info.ymdForRecurring),
-            ]
-        }
-        return c.url
+        c.host = "open"
+        return c.url!
     }
 }
 
@@ -201,11 +183,9 @@ private struct TodayTasksWidgetPreviewCanvas: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(family == .systemSmall ? 4 : 5)
-            if let url = PreviewDeepLink.completeURL(forNextUp: next) {
-                Link("在 App 中完成", destination: url)
-                    .font(.caption2)
-                    .padding(.top, 2)
-            }
+            Link("在 App 中查看", destination: PreviewDeepLink.openAppURL)
+                .font(.caption2)
+                .padding(.top, 2)
         }
     }
 

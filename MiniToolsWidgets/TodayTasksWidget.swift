@@ -51,7 +51,7 @@ struct TodayTasksWidgetView: View {
         let pack = (rows: entry.rows, nextUp: entry.nextUp)
         widgetLayout(pack: pack)
             .padding(8)
-            // 未包住 `Link` 的空白、标题、行内文字等区域点击时打开 App；`Link`（圆圈、「在 App 中完成」）仍优先走完成深链。
+            // 未包住 `Link` 的空白、标题、行内文字等区域点击时打开 App；行首圆圈仍为「完成」深链；「下次待办」为仅打开 App。
             .widgetURL(WidgetDeepLink.openAppURL)
     }
 
@@ -154,11 +154,9 @@ struct TodayTasksWidgetView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(family == .systemSmall ? 4 : 5)
-            if let url = WidgetDeepLink.completeURL(forNextUp: next) {
-                Link("在 App 中完成", destination: url)
-                    .font(.caption2)
-                    .padding(.top, 2)
-            }
+            Link("在 App 中查看", destination: WidgetDeepLink.openAppURL)
+                .font(.caption2)
+                .padding(.top, 2)
         }
     }
 
@@ -225,7 +223,7 @@ struct TodayTasksWidget: Widget {
                 .containerBackground(.fill.secondary, for: .widget)
         }
         .configurationDisplayName("今日待办")
-        .description("中大尺寸为左右两栏：今日待办 / 下次待办；小尺寸为上下排列。点击圆圈或「在 App 中完成」可勾选；点击其它区域打开应用。")
+        .description("中大尺寸为左右两栏：今日待办 / 下次待办；小尺寸为上下排列。点击今日待办圆圈可在 App 中标记完成；「下次待办」中可打开应用查看；点击其它区域打开应用。")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

@@ -11,7 +11,7 @@
 #
 # 说明：推送到 GitHub 的 tag + Release 由 gh 创建；请把仓库变量 USE_CLOUD_RELEASE 关掉（勿设为 true），
 #       否则 tag 仍会触发云端 workflow（见 .github/workflows/release-macos.yml）。
-# 产物：发版过程中会重建 package/；**GitHub Release 上传成功后**会再清理本机 package/、默认 DerivedData 的 **Debug 产物**、根目录 zip/sha256、**build/ReleaseDerived**（与上传无关的本地安装包一并删掉，省空间）。
+# 产物：发版过程中会重建 package/；**GitHub Release 上传成功后**会再清理本机 package/、默认 DerivedData 的 **Debug 产物**、根目录**除本次外的** zip/sha256、**build/ReleaseDerived**。**本次** MiniTools-SwiftUI-${VERSION}.zip 会复制到仓库根并保留。
 # 若 VERSION 对应的 Release 已在 GitHub 存在，脚本会报错退出，请改用新版本号。
 # 主应用产物名为「工作计划.app」（PRODUCT_NAME）；zip 文件名仍为 MiniTools-SwiftUI-${VERSION}.zip，与历史 Release 习惯一致。
 
@@ -23,11 +23,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# 旧版脚本可能把 zip 留在仓库根目录，一并清掉，避免与本机「只保留当前包」混淆
-rm -f "$ROOT"/MiniTools-SwiftUI-v*.zip "$ROOT"/MiniTools-SwiftUI-v*.zip.sha256 2>/dev/null || true
-
 # ======================== 可配置（每次发版只改这里） ========================
-VERSION="v1.0.16"
+VERSION="v1.0.17"
 COMMIT_MSG="小组件bug修复和优化"
 BRANCH="dev"
 # ==========================================================================
@@ -36,6 +33,9 @@ if [[ ! "$VERSION" =~ ^v[0-9] ]]; then
   echo "错误: VERSION 必须以 v 开头，例如 v1.0.8"
   exit 1
 fi
+
+# 同一 VERSION 重复跑脚本时先去掉根目录同名包；其它旧版 zip 保留（由上轮成功上传后留存）。
+rm -f "$ROOT/MiniTools-SwiftUI-${VERSION}.zip" "$ROOT/MiniTools-SwiftUI-${VERSION}.zip.sha256" 2>/dev/null || true
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "错误: 未找到 GitHub CLI（gh）。请任选其一："
@@ -111,10 +111,13 @@ gh release create "$VERSION" \
   --generate-notes \
   --latest
 
+cp -f "$ZIP" "$ROOT/MiniTools-SwiftUI-${VERSION}.zip"
+echo ">>> 本机已保留: ${ROOT}/MiniTools-SwiftUI-${VERSION}.zip"
+
 # ---------- GitHub 上传成功后：清理本机 Debug 产物、package、其它本地安装包残留 ----------
 cleanup_after_release_uploaded() {
   echo ""
-  echo ">>> GitHub Release 上传成功，清理本机产物（Debug DerivedData、package/、根目录 zip、ReleaseDerived）…"
+  echo ">>> GitHub Release 上传成功，清理本机产物（Debug DerivedData、package/、根目录旧 zip/sha256、ReleaseDerived）…"
 
   # Xcode 目录名为 MiniTools-SwiftUI-<随机后缀>，用 find 按前缀匹配，不依赖具体 hash。
   local xcode_derived="${HOME}/Library/Developer/Xcode/DerivedData"
@@ -129,8 +132,10 @@ cleanup_after_release_uploaded() {
   fi
 
   shopt -s nullglob
+  local keep_zip="${ROOT}/MiniTools-SwiftUI-${VERSION}.zip"
   for f in "${ROOT}"/MiniTools-SwiftUI*.zip "${ROOT}"/MiniTools-SwiftUI*.zip.sha256; do
     [[ -e "$f" ]] || continue
+    [[ "$f" == "$keep_zip" ]] && continue
     echo "  删除: $f"
     rm -f "$f"
   done
@@ -146,9 +151,9 @@ cleanup_after_release_uploaded() {
     rm -rf "${ROOT}/build/ReleaseDerived"
   fi
 
-  echo ">>> 本地清理完成。Release 文件已在 GitHub，本机仅保留 git 仓库与脚本日志等。"
+  echo ">>> 本地清理完成。Release 文件已在 GitHub；根目录保留 ${keep_zip##*/}。"
 }
 cleanup_after_release_uploaded
 
 echo ""
-echo "已完成: GitHub Releases 可下载 $VERSION（本机 package/ 与上述产物已按策略清除）。"
+echo "已完成: GitHub Releases 可下载 $VERSION（本机已保留 MiniTools-SwiftUI-${VERSION}.zip，package/ 等已清除）。"

@@ -41,29 +41,4 @@ enum WidgetDeepLink {
         }
         return c.url
     }
-
-    static func completeURL(forNextUp info: NextUpTaskInfo) -> URL? {
-        var c = URLComponents()
-        c.scheme = scheme
-        c.host = "complete"
-        if info.isOneTime {
-            c.queryItems = [
-                URLQueryItem(name: "type", value: "onetime"),
-                URLQueryItem(name: "id", value: info.rawId),
-            ]
-        } else if info.isHourly {
-            c.queryItems = [
-                URLQueryItem(name: "type", value: "hourly"),
-                URLQueryItem(name: "id", value: info.rawId),
-                URLQueryItem(name: "ymd", value: info.ymdForRecurring),
-            ]
-        } else {
-            c.queryItems = [
-                URLQueryItem(name: "type", value: "recurring"),
-                URLQueryItem(name: "id", value: info.rawId),
-                URLQueryItem(name: "ymd", value: info.ymdForRecurring),
-            ]
-        }
-        return c.url
-    }
 }
