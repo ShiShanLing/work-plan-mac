@@ -137,6 +137,28 @@ struct OneTimeReminder: Codable, Identifiable, Equatable, Sendable {
     }
 
     /// 日历上选中某日时新建定时提醒：日期为该日，时刻默认当天 9:00（可在编辑页修改）。
+    /// 从需求清单/子任务预填：日期取清单截止或开始日，否则今日；标题为「清单 · 子任务」或仅清单名。
+    static func draftFromChecklistHint(
+        checklistTitle: String,
+        subtaskTitle: String?,
+        dateYmd: String,
+        calendar: Calendar = .current
+    ) -> OneTimeReminder {
+        var r = newDraftForCalendarDay(ymd: dateYmd, calendar: calendar)
+        let c = checklistTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let s = subtaskTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !s.isEmpty {
+            if c.isEmpty {
+                r.title = s
+            } else {
+                r.title = "\(c) · \(s)"
+            }
+        } else {
+            r.title = c.isEmpty ? "需求清单" : c
+        }
+        return r
+    }
+
     static func newDraftForCalendarDay(ymd: String, calendar: Calendar = .current) -> OneTimeReminder {
         guard let dayStart = LocalCalendarDate.parseLocalYmd(ymd, calendar: calendar) else {
             return Self.default(calendar: calendar)

@@ -26,6 +26,7 @@ enum LocalJSONStore {
         "one_time_reminders.json",
         "recurring_tasks.json",
         "hourly_window_tasks.json",
+        "project_checklists.json",
     ]
 
     private static var legacyDirectoryURL: URL {
@@ -283,6 +284,21 @@ enum LocalJSONStore {
 
     static func saveHourlyWindowTasks(_ items: [HourlyWindowTask]) {
         save(items, to: url("hourly_window_tasks.json"))
+    }
+
+    static func loadProjectChecklists() -> [ProjectChecklist] {
+        loadProjectChecklistsDetailed().items
+    }
+
+    static func loadProjectChecklistsDetailed() -> ArrayLoadResult<ProjectChecklist> {
+        loadArrayJson(
+            fileName: "project_checklists.json",
+            decode: { try decoder.decode([ProjectChecklist].self, from: $0) }
+        )
+    }
+
+    static func saveProjectChecklists(_ items: [ProjectChecklist]) {
+        save(items, to: url("project_checklists.json"))
     }
 
     private static func save<T: Encodable>(_ value: T, to url: URL) {

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5446F7F32F7D20A50065FE1D /* MiniToolsCore in Frameworks */ = {isa = PBXBuildFile; productRef = E2B211122F7B976D00FA73ED /* MiniToolsCore */; };
+		5446F7F42F7D20A50065FE1D /* MiniToolsCore in Frameworks */ = {isa = PBXBuildFile; productRef = E2B211122F7B976D00FA73ED /* MiniToolsCore */; };
 		E2A100152F7B976D00FA73ED /* MiniToolsWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E2A100182F7B976D00FA73EC /* MiniToolsWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -36,8 +38,8 @@
 
 /* Begin PBXFileReference section */
 		544A8D0A2F7B976D00FA73EC /* 工作计划.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "工作计划.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		E2B211132F7B976D00FA73ED /* MiniToolsCore */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MiniToolsCore; sourceTree = "<group>"; };
 		E2A100182F7B976D00FA73EC /* MiniToolsWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MiniToolsWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E2B211132F7B976D00FA73ED /* MiniToolsCore */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MiniToolsCore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -58,6 +60,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5446F7F32F7D20A50065FE1D /* MiniToolsCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +68,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5446F7F42F7D20A50065FE1D /* MiniToolsCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -246,21 +250,6 @@
 			targetProxy = E2A100172F7B976D00FA73ED /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		E2B211112F7B976D00FA73ED /* XCLocalSwiftPackageReference "MiniToolsCore" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = MiniToolsCore;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		E2B211122F7B976D00FA73ED /* MiniToolsCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E2B211112F7B976D00FA73ED /* XCLocalSwiftPackageReference "MiniToolsCore" */;
-			productName = MiniToolsCore;
-		};
-/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		544A8D132F7B977200FA73EC /* Debug */ = {
@@ -559,6 +548,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		E2B211112F7B976D00FA73ED /* XCLocalSwiftPackageReference "MiniToolsCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MiniToolsCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E2B211122F7B976D00FA73ED /* MiniToolsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E2B211112F7B976D00FA73ED /* XCLocalSwiftPackageReference "MiniToolsCore" */;
+			productName = MiniToolsCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 544A8D022F7B976D00FA73EC /* Project object */;
 }

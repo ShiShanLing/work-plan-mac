@@ -119,6 +119,12 @@ struct ContentView: View {
                 .tabItem { Label("时段提醒", systemImage: "clock.arrow.2.circlepath") }
 
                 NavigationStack {
+                    // 与另几页一致；侧栏已改为页内 HStack，不再使用会占用窗口根分割区域的 HSplitView。
+                    ProjectChecklistsView()
+                }
+                .tabItem { Label("需求清单", systemImage: "checklist") }
+
+                NavigationStack {
                     TasksCalendarView()
                 }
                 .tabItem { Label("日历", systemImage: "calendar") }
