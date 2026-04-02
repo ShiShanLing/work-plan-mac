@@ -5,6 +5,7 @@
 //  Created by 石山岭 on 2026/3/31.
 //
 
+import AppKit
 import SwiftUI
 
 @main
@@ -18,15 +19,49 @@ struct MiniTools_SwiftUIApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environment(store)
-                .frame(minWidth: 720, minHeight: 520)
-                .onOpenURL { url in
-                    Task { await WidgetURLHandler.handle(url, store: store) }
-                }
+        // 固定 id，便于小组件 URL 唤醒时 `openWindow` 在「无窗口」（如已 ⌘W 关窗）下重建窗口。
+        WindowGroup(id: "main") {
+            AppRootView(store: store)
         }
+        .handlesExternalEvents(matching: Set(["*"]))
         // 首次打开（无上次关闭时保存的尺寸）时使用；用户仍可自由缩放。
         .defaultSize(width: 960, height: 720)
+    }
+}
+
+// MARK: - 小组件 / URL：隐藏、最小化、关窗后仍需置前主窗口
+
+private struct AppRootView: View {
+    var store: EfficiencyStore
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        ContentView()
+            .environment(store)
+            .frame(minWidth: 720, minHeight: 520)
+            // 已有窗口时，把 minitools:// 交给当前场景，避免系统再开一个新窗口。
+            .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
+            .onOpenURL { url in
+                bringMainWindowToFront(openWindow: openWindow)
+                Task { await WidgetURLHandler.handle(url, store: store) }
+            }
+    }
+
+    private func bringMainWindowToFront(openWindow: OpenWindowAction) {
+        let app = NSApplication.shared
+        app.activate(ignoringOtherApps: true)
+        app.unhide(nil)
+
+        let keyed = app.windows.filter(\.canBecomeKey)
+        if keyed.isEmpty {
+            openWindow(id: "main")
+            return
+        }
+        for w in keyed {
+            if w.isMiniaturized {
+                w.deminiaturize(nil)
+            }
+            w.makeKeyAndOrderFront(nil)
+        }
     }
 }
