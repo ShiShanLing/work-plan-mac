@@ -225,17 +225,9 @@ struct WGOneTimeReminder: Codable, Identifiable {
         try c.encodeIfPresent(completedAtYmd, forKey: .completedAtYmd)
     }
 
-    func fireSummary() -> String {
-        String(format: "%@ %02d:%02d", dateYmd, hour, minute)
-    }
-
-    /// 小组件「今日待办」等展示：`MM-dd HH:mm`（不含年份）。
-    func fireSummaryOmittingYear() -> String {
-        let parts = dateYmd.split(separator: "-")
-        guard parts.count == 3 else {
-            return String(format: "%@ %02d:%02d", dateYmd, hour, minute)
-        }
-        return String(format: "%@-%@ %02d:%02d", String(parts[1]), String(parts[2]), hour, minute)
+    /// 小组件「今日待办」一次性提醒：列表仅含今日，副标题只展示时分。
+    func fireSummaryTimeTodayRow() -> String {
+        String(format: "%02d:%02d", hour, minute)
     }
 
     func fireDate(calendar: Calendar = .current) -> Date? {
@@ -588,7 +580,7 @@ enum TodayWidgetRowLoader {
             rows.append(TodayRowData(
                 id: "o-\(o.id)",
                 title: o.title.isEmpty ? "（无标题）" : o.title,
-                subtitle: "定时 · \(o.fireSummaryOmittingYear())",
+                subtitle: "定时 · \(o.fireSummaryTimeTodayRow())",
                 isOneTime: true,
                 isHourly: false,
                 rawId: o.id,
