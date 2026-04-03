@@ -5,6 +5,8 @@
 
 import AppKit
 import SwiftUI
+
+/// 编辑表单里「重复方式」选择器与内部 `Recurrence` 的桥接。
 private enum RecurrenceUIKind: String, CaseIterable, Identifiable {
     case daily
     case everyNDays
@@ -25,6 +27,7 @@ private enum RecurrenceUIKind: String, CaseIterable, Identifiable {
     }
 }
 
+/// 循环任务 Tab：按近日分组列表、全部列表、新建/编辑弹层。
 struct RecurringTasksView: View {
     @Environment(EfficiencyStore.self) private var store
     @ObservedObject private var notifier = NotificationScheduler.shared
@@ -237,6 +240,7 @@ struct RecurringTasksView: View {
 
 // MARK: - Hour / minute fields
 
+/// 提醒时刻的时、分两个数字框（带合法范围裁剪）。
 private struct HourMinuteFields: View {
     @Binding var hour: Int
     @Binding var minute: Int
@@ -276,6 +280,7 @@ private struct HourMinuteFields: View {
 
 // MARK: - Task sheet
 
+/// 新建/编辑单条循环任务：重复规则、提醒、是否显示在小组件。
 private struct RecurringTaskEditSheet: View {
     @Environment(\.dismiss) private var dismiss
 

@@ -8,6 +8,7 @@
 import AppKit
 import SwiftUI
 
+/// macOS 应用入口：创建 `EfficiencyStore`、主窗口组（固定 id 便于深链复用窗口）。
 @main
 struct MiniTools_SwiftUIApp: App {
     @State private var store = EfficiencyStore()
@@ -31,6 +32,7 @@ struct MiniTools_SwiftUIApp: App {
 
 // MARK: - 小组件 / URL：隐藏、最小化、关窗后仍需置前主窗口
 
+/// 包住 `ContentView`：注入 Store、`openWindow` 召回主窗口，并把 `minitools://` 交给 `WidgetURLHandler`。
 private struct AppRootView: View {
     var store: EfficiencyStore
     @Environment(\.openWindow) private var openWindow

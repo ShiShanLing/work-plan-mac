@@ -7,6 +7,7 @@ import Foundation
 import Observation
 import OSLog
 
+/// 效率模块单一数据源：一次性提醒、循环任务、时段任务、项目清单；负责 JSON 持久化与通知/小组件刷新。
 @MainActor
 @Observable
 final class EfficiencyStore {

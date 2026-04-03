@@ -6,6 +6,7 @@
 import Foundation
 import MiniToolsCore
 
+/// 循环例行任务：重复规则、提醒时刻、按日完成勾选；可选是否在「今日任务」小组件中展示。
 struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var title: String

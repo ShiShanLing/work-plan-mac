@@ -8,6 +8,7 @@
 import AppKit
 import SwiftUI
 
+/// 项目清单 Tab：左侧清单侧栏、右侧子任务与细节；支持拖拽排序与 macOS 拖移手柄。
 struct ProjectChecklistsView: View {
     @Environment(EfficiencyStore.self) private var store
 

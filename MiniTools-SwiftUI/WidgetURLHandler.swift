@@ -7,6 +7,7 @@
 
 import Foundation
 
+/// 解析小组件发来的 `minitools://complete?...` URL，在应用内勾选对应一次性 / 例行 / 时段任务。
 enum WidgetURLHandler {
     private static let scheme = "minitools"
 

@@ -8,6 +8,7 @@
 
 import OSLog
 
+/// 统一日志子系统：按 category 区分 app / 通知 / 存储 / 小组件，便于 Console 过滤。
 enum AppLog {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "MiniTools"
 

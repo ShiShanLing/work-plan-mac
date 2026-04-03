@@ -107,6 +107,7 @@ extension Array where Element == ProjectChecklistSubItemDetail {
     }
 }
 
+/// 项目清单下的一条子任务，可含多级细节行、优先级与组内排序。
 struct ProjectChecklistSubItem: Codable, Identifiable, Equatable, Hashable, Sendable {
     var id: String
     var title: String
@@ -164,6 +165,7 @@ struct ProjectChecklistSubItem: Codable, Identifiable, Equatable, Hashable, Send
     }
 }
 
+/// 一条「需求清单」：标题、可选起止日期、色标、子任务列表；可整体归档并完成。
 struct ProjectChecklist: Codable, Identifiable, Equatable, Hashable, Sendable {
     var id: String
     var title: String

@@ -5,6 +5,8 @@
 
 import AppKit
 import SwiftUI
+
+/// 一次性提醒 Tab：今日与 upcoming 列表、历史、新建/编辑。
 struct OneTimeRemindersView: View {
     @Environment(EfficiencyStore.self) private var store
     @ObservedObject private var notifier = NotificationScheduler.shared

@@ -16,6 +16,7 @@ enum ReminderDatePickerChinese {
     }
 }
 
+/// 一次性提醒的新建或编辑表单（日期时间、标题、完成态限制）。
 struct OneTimeReminderEditSheet: View {
     @Environment(\.dismiss) private var dismiss
 

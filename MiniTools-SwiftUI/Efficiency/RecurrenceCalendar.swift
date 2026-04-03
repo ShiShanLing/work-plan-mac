@@ -5,6 +5,7 @@
 
 import Foundation
 
+/// 循环任务的重复规则（每天 / 每 N 天 / 周 / 月 / 年及跳过周末等）。
 enum Recurrence: Codable, Equatable, Sendable {
     /// `skipWeekends`: 周六、周日不计入到期日（遵循当前 `Calendar` 的周末定义）。
     case daily(skipWeekends: Bool)
@@ -71,6 +72,7 @@ enum Recurrence: Codable, Equatable, Sendable {
     }
 }
 
+/// 本地日历 `YYYY-MM-DD` 解析、与重复规则「某日是否到期」等纯函数工具。
 enum LocalCalendarDate {
     static func localYmd(_ d: Date, calendar: Calendar = .current) -> String {
         let y = calendar.component(.year, from: d)

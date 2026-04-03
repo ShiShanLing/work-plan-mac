@@ -6,6 +6,7 @@
 import SwiftUI
 import WidgetKit
 
+/// 桌面小组件单帧数据：当前时刻、今日行、以及去重后的下一次任务预告。
 struct TodayEntry: TimelineEntry {
     let date: Date
     let rows: [TodayRowData]
@@ -13,6 +14,7 @@ struct TodayEntry: TimelineEntry {
     let nextUp: NextUpTaskInfo?
 }
 
+/// 加载 App Group JSON 并生成 `TodayEntry`；时间线策略为约每小时或午夜刷新。
 struct TodayProvider: TimelineProvider {
     func placeholder(in _: Context) -> TodayEntry {
         TodayEntry(date: Date(), rows: [], nextUp: nil)
@@ -37,6 +39,7 @@ struct TodayProvider: TimelineProvider {
     }
 }
 
+/// 「今日待办」小组件的 SwiftUI 布局（小尺寸纵排、中大尺寸左右分栏）。
 struct TodayTasksWidgetView: View {
     @Environment(\.widgetFamily) private var environmentFamily
 
@@ -214,6 +217,7 @@ struct TodayTasksWidgetView: View {
     }
 }
 
+/// WidgetKit 配置：`StaticConfiguration` + `TodayProvider`，支持小/中/大尺寸。
 struct TodayTasksWidget: Widget {
     static let kind = "TodayTasksWidget"
 

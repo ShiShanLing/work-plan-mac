@@ -86,6 +86,7 @@ private enum PreviewDeepLink {
 
 // MARK: - 与 TodayTasksWidgetView 同结构的预览画布
 
+/// 主 App target 内模拟小组件布局（因扩展无法可靠跑 Xcode Preview），与 `TodayTasksWidgetView` 结构保持一致。
 private struct TodayTasksWidgetPreviewCanvas: View {
     var previewFamily: WidgetFamily
     var entry: PreviewWidgetEntry

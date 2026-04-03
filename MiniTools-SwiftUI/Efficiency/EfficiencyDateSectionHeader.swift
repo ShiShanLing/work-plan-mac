@@ -5,6 +5,7 @@
 
 import SwiftUI
 
+/// 效率列表里按 `YYYY-MM-DD` 分组的标题行（日期 + 条数）。
 enum EfficiencyDateSectionHeader {
     static func title(forYmd ymd: String, calendar: Calendar = .current) -> String {
         guard let d = LocalCalendarDate.parseLocalYmd(ymd, calendar: calendar) else { return ymd }

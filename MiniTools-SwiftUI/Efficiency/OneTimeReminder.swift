@@ -5,6 +5,7 @@
 
 import Foundation
 
+/// 一次性定时提醒：指定日期与时分触发，可标记完成。
 struct OneTimeReminder: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var title: String

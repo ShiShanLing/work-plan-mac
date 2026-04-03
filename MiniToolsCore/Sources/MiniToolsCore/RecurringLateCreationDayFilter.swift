@@ -7,6 +7,7 @@
 
 import Foundation
 
+/// 若例行任务创建日下午已过当天提醒点，则当天不在列表/小组件展示（首次出现在下一到期日）。
 public enum RecurringLateCreationDayFilter {
     /// - Parameters:
     ///   - createdAtYmd: 任务 `createdAt`（本地日历 `YYYY-MM-DD`）

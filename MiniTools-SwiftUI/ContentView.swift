@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+/// 主窗口内容：多 Tab 效率工具、启动闪屏，以及通知授权状态与调试入口。
 struct ContentView: View {
     @Environment(EfficiencyStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase

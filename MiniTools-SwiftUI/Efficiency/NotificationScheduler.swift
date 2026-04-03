@@ -75,6 +75,7 @@ private final class NotificationCenterDelegateProxy: NSObject, UNUserNotificatio
     }
 }
 
+/// 调度与同步本地通知（例行/定时/时段），注册分类与操作，并处理通知点击回调。
 @MainActor
 final class NotificationScheduler: ObservableObject {
     static let shared = NotificationScheduler()

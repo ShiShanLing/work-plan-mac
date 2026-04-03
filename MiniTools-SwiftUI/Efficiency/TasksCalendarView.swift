@@ -10,6 +10,7 @@ import SwiftUI
 
 // MARK: - 模型
 
+/// 月历某日点击后展示的汇总行：定时 / 例行 / 清单及其展示文案与删除语义。
 private struct CalendarTaskRow: Identifiable, Equatable {
     enum Kind: String {
         case oneTime = "定时"
@@ -38,6 +39,7 @@ private struct CalendarTaskRow: Identifiable, Equatable {
     let checklistTag: ProjectChecklistTag?
 }
 
+/// 月视图网格中单元的模型（空白、补位、或某日编号格）。
 private enum MonthGridCell: Identifiable {
     case padding(Int)
     case day(ymd: String, dayNumber: Int)
@@ -56,6 +58,7 @@ private struct CalendarSheetDay: Identifiable {
     var id: String { ymd }
 }
 
+/// 月历网格构建、某格任务条聚合等无 UI 计算。
 private enum TasksCalendarLogic {
     static func monthGrid(for monthContaining: Date, calendar cal: Calendar) -> [MonthGridCell] {
         guard let monthStart = cal.date(from: cal.dateComponents([.year, .month], from: monthContaining)),
@@ -186,6 +189,7 @@ private enum TasksCalendarLogic {
 
 // MARK: - 视图
 
+/// 日历 Tab：月历展示定时与例行（及清单）分布，点格进入当日任务 sheet。
 struct TasksCalendarView: View {
     @Environment(EfficiencyStore.self) private var store
 
@@ -359,6 +363,7 @@ struct TasksCalendarView: View {
 
 // MARK: - 弹出层：某日全部任务
 
+/// 月历点选某日后的 sheet：列出当天定时/例行/清单并可跳转编辑。
 private struct CalendarDayTasksSheet: View {
     @Environment(\.dismiss) private var dismiss
 

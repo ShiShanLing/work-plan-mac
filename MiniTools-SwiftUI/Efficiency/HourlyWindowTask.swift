@@ -176,6 +176,7 @@ struct HourlyWindowTask: Codable, Identifiable, Equatable, Sendable {
 
 // MARK: - 通知 / 其它调用方
 
+/// 对 `HourlyWindowScheduling` 的薄封装，供通知与 UI 计算下一响铃时刻。
 enum HourlyWindowSchedule {
     static func slotDates(on dayStart: Date, calendar cal: Calendar, task: HourlyWindowTask) -> [Date] {
         HourlyWindowScheduling.slotDates(on: dayStart, calendar: cal, config: task.hourlyWindowConfig)

@@ -8,12 +8,14 @@
 import Foundation
 import MiniToolsCore
 
+/// 小组件扩展内使用的 App Group 标识（须与主 target 一致）。
 enum WidgetAppGroup {
     static let identifier = "group.com.MiniTools.www.MiniTools-SwiftUI"
 }
 
 // MARK: - Recurrence (copy)
 
+/// 与主应用 `Recurrence` JSON 形状一致的重复规则（独立模块拷贝）。
 enum WGRecurrence: Codable, Equatable {
     case daily(skipWeekends: Bool)
     case everyNDays(intervalDays: Int, anchorDate: String)
@@ -78,6 +80,7 @@ enum WGRecurrence: Codable, Equatable {
     }
 }
 
+/// 小组件侧本地日历字符串、重复规则文案、到期判断等工具。
 enum WGCalendar {
     static func localYmd(_ d: Date, calendar: Calendar = .current) -> String {
         let y = calendar.component(.year, from: d)
@@ -181,6 +184,7 @@ enum WGCalendar {
     }
 }
 
+/// 与主应用一次性提醒 JSON 一致的解码模型。
 struct WGOneTimeReminder: Codable, Identifiable {
     var id: String
     var title: String
@@ -244,6 +248,7 @@ struct WGOneTimeReminder: Codable, Identifiable {
     }
 }
 
+/// 与主应用循环任务 JSON 一致的解码模型（含 `showInWidget`）。
 struct WGRecurringTask: Codable, Identifiable {
     var id: String
     var title: String
@@ -291,6 +296,7 @@ struct WGRecurringTask: Codable, Identifiable {
 
 // MARK: - 时段任务（与主应用 `hourly_window_tasks.json` 一致）
 
+/// 与主应用时段任务 JSON 一致的解码模型。
 struct WGHourlyWindowTask: Codable, Identifiable {
     var id: String
     var title: String
@@ -396,6 +402,7 @@ struct WGHourlyWindowTask: Codable, Identifiable {
 
 // MARK: - IO
 
+/// App Group 下读写与主应用相同的 JSON 数组（读优先非空文件；扩展侧少量写回用于调试或将来能力）。
 enum TodayWidgetIO {
     private static let decoder = JSONDecoder()
     private static let encoder: JSONEncoder = {
@@ -483,6 +490,7 @@ enum TodayWidgetIO {
 
 // MARK: - 今日行（小组件用）
 
+/// 「今日待办」列表中的一行展示数据（定时 / 例行 / 时段），用于 SwiftUI 与 `WidgetDeepLink`。
 struct TodayRowData: Identifiable {
     let id: String
     let title: String
@@ -516,6 +524,7 @@ struct NextUpTaskInfo {
     let ymdForRecurring: String
 }
 
+/// 从磁盘 JSON 组装今日行与「下次待办」，与主应用日历逻辑对齐（日历、去重、迟到创建日过滤等）。
 enum TodayWidgetRowLoader {
     /// 与主应用日历页一致，避免小组件与 App 因 `Calendar.current` 差异导致「今日」判定不一致。
     /// 与用户「日期设置」一致；自建 gregorian 曾与 `Calendar.current` 在个别环境下差一天。

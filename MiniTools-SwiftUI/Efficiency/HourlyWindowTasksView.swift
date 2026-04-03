@@ -6,6 +6,7 @@
 import AppKit
 import SwiftUI
 
+/// 时段任务 Tab：列表与新建/编辑 sheet（时间窗、间隔、仅工作日等）。
 struct HourlyWindowTasksView: View {
     @Environment(EfficiencyStore.self) private var store
     @ObservedObject private var notifier = NotificationScheduler.shared
