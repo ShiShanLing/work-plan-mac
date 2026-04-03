@@ -254,9 +254,10 @@ struct WGRecurringTask: Codable, Identifiable {
     var notificationIds: [String]
     var createdAt: String
     var completedYmds: [String]
+    var showInWidget: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, title, recurrence, notifyEnabled, notifyHour, notifyMinute, notificationIds, createdAt, completedYmds
+        case id, title, recurrence, notifyEnabled, notifyHour, notifyMinute, notificationIds, createdAt, completedYmds, showInWidget
     }
 
     init(from decoder: Decoder) throws {
@@ -270,6 +271,7 @@ struct WGRecurringTask: Codable, Identifiable {
         notificationIds = try c.decodeIfPresent([String].self, forKey: .notificationIds) ?? []
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt) ?? WGCalendar.localYmd(Date())
         completedYmds = try c.decodeIfPresent([String].self, forKey: .completedYmds) ?? []
+        showInWidget = try c.decodeIfPresent(Bool.self, forKey: .showInWidget) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -283,6 +285,7 @@ struct WGRecurringTask: Codable, Identifiable {
         try c.encode(notificationIds, forKey: .notificationIds)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(completedYmds, forKey: .completedYmds)
+        try c.encode(showInWidget, forKey: .showInWidget)
     }
 }
 
@@ -603,6 +606,7 @@ enum TodayWidgetRowLoader {
 
         let recs = recurring
             .filter {
+                guard $0.showInWidget else { return false }
                 guard WGCalendar.isTaskDueOn(recurrence: $0.recurrence, ref: now, calendar: cal) else { return false }
                 guard !$0.completedYmds.contains(today) else { return false }
                 return !RecurringLateCreationDayFilter.shouldOmitFromDisplay(
@@ -714,6 +718,7 @@ enum TodayWidgetRowLoader {
         var bestRecYmd: String?
 
         for t in allRec {
+            guard t.showInWidget else { continue }
             guard let hit = firstPendingOccurrence(
                 of: t,
                 fromStartOfToday: startToday,

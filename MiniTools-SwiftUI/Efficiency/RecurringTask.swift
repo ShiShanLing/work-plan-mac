@@ -17,9 +17,11 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
     var createdAt: String
     /// Local YYYY-MM-DD marked done (checklist); does not change recurrence rule.
     var completedYmds: [String]
+    /// When `false`, task stays in the app but is omitted from the Today widget lists / next-up.
+    var showInWidget: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, title, recurrence, notifyEnabled, notifyHour, notifyMinute, notificationIds, createdAt, completedYmds
+        case id, title, recurrence, notifyEnabled, notifyHour, notifyMinute, notificationIds, createdAt, completedYmds, showInWidget
     }
 
     init(
@@ -31,7 +33,8 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
         notifyMinute: Int,
         notificationIds: [String],
         createdAt: String,
-        completedYmds: [String]
+        completedYmds: [String],
+        showInWidget: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -42,6 +45,7 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
         self.notificationIds = notificationIds
         self.createdAt = createdAt
         self.completedYmds = completedYmds
+        self.showInWidget = showInWidget
     }
 
     init(from decoder: Decoder) throws {
@@ -56,6 +60,7 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
             ?? LocalCalendarDate.localYmd(Date())
         completedYmds = try c.decodeIfPresent([String].self, forKey: .completedYmds) ?? []
+        showInWidget = try c.decodeIfPresent(Bool.self, forKey: .showInWidget) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -69,6 +74,7 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
         try c.encode(notificationIds, forKey: .notificationIds)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(completedYmds, forKey: .completedYmds)
+        try c.encode(showInWidget, forKey: .showInWidget)
     }
 
     static func `default`(calendar: Calendar = .current) -> RecurringTask {
@@ -81,7 +87,8 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
             notifyMinute: 0,
             notificationIds: [],
             createdAt: LocalCalendarDate.localYmd(Date(), calendar: calendar),
-            completedYmds: []
+            completedYmds: [],
+            showInWidget: true
         )
     }
 
@@ -93,7 +100,7 @@ struct RecurringTask: Codable, Identifiable, Equatable, Sendable {
         completedYmds.contains(ymd)
     }
 
-    /// 创建日当天提醒时刻已过则该日不从「近日待办 / 日历 / 小组件」展示（见 `RecurringLateCreationDayFilter`）。
+    /// 创建日当天提醒时刻已过则该日不从「近日待办 / 日历 / 小组件（当 `showInWidget`）」展示（见 `RecurringLateCreationDayFilter`）。
     func shouldOmitFromDisplay(on cellYmd: String, now: Date = Date(), calendar: Calendar = .current) -> Bool {
         RecurringLateCreationDayFilter.shouldOmitFromDisplay(
             createdAtYmd: createdAt,

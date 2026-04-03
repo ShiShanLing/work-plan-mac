@@ -444,12 +444,18 @@ private struct RecurringTaskEditSheet: View {
                     HourMinuteFields(hour: $draft.notifyHour, minute: $draft.notifyMinute)
                 }
 
-                Text("哪天该做仍由重复规则决定；此处是当天几点响铃/排序（未开提醒时也会在日历、小组件里参与先后）。")
+                Text("哪天该做仍由重复规则决定；此处是当天几点响铃/排序（未开提醒时也会在日历与应用内列表里参与先后）。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Toggle("到点本地提醒", isOn: $draft.notifyEnabled)
+
+                Toggle("在小组件中显示", isOn: $draft.showInWidget)
+                Text("关闭后该任务仍出现在应用内与通知中，仅从「今日任务」小组件列表与「下次待办」中隐藏。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .formStyle(.grouped)
 
