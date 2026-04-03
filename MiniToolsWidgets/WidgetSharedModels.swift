@@ -229,6 +229,15 @@ struct WGOneTimeReminder: Codable, Identifiable {
         String(format: "%@ %02d:%02d", dateYmd, hour, minute)
     }
 
+    /// 小组件「今日待办」等展示：`MM-dd HH:mm`（不含年份）。
+    func fireSummaryOmittingYear() -> String {
+        let parts = dateYmd.split(separator: "-")
+        guard parts.count == 3 else {
+            return String(format: "%@ %02d:%02d", dateYmd, hour, minute)
+        }
+        return String(format: "%@-%@ %02d:%02d", String(parts[1]), String(parts[2]), hour, minute)
+    }
+
     func fireDate(calendar: Calendar = .current) -> Date? {
         let p = dateYmd.split(separator: "-").compactMap { Int($0) }
         guard p.count == 3 else { return nil }
@@ -579,7 +588,7 @@ enum TodayWidgetRowLoader {
             rows.append(TodayRowData(
                 id: "o-\(o.id)",
                 title: o.title.isEmpty ? "（无标题）" : o.title,
-                subtitle: "定时 · \(o.fireSummary())",
+                subtitle: "定时 · \(o.fireSummaryOmittingYear())",
                 isOneTime: true,
                 isHourly: false,
                 rawId: o.id,

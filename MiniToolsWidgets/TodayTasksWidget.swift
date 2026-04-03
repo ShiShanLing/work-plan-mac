@@ -183,10 +183,10 @@ struct TodayTasksWidgetView: View {
 
     private var rowLimit: Int {
         switch family {
-        case .systemSmall: return 3
-        case .systemMedium: return 6
-        case .systemLarge: return 12
-        default: return 6
+        case .systemSmall: return 1
+        case .systemMedium: return 3
+        case .systemLarge: return 6
+        default: return 3
         }
     }
 
