@@ -489,6 +489,17 @@ struct TodayRowData: Identifiable {
     let isHourly: Bool
     let rawId: String
     let todayYmd: String
+    /// 仅一次性提醒有值；列表副标题只认此处 + `isOneTime`，不依赖 `subtitle` 字符串（避免时间线缓存里夹带旧版「日期+时间」文案）。
+    let oneTimeHour: Int?
+    let oneTimeMinute: Int?
+
+    /// 今日待办列表展示：小/中/大共用，不按 `widgetFamily` 分支。
+    var todayListDisplaySubtitle: String {
+        if isOneTime, let h = oneTimeHour, let m = oneTimeMinute {
+            return String(format: "定时 · %02d:%02d", h, m)
+        }
+        return subtitle
+    }
 }
 
 /// 小组件「下一次」区块所用的预告信息（主应用逻辑对齐：按时间取最早一条）。
@@ -584,7 +595,9 @@ enum TodayWidgetRowLoader {
                 isOneTime: true,
                 isHourly: false,
                 rawId: o.id,
-                todayYmd: today
+                todayYmd: today,
+                oneTimeHour: o.hour,
+                oneTimeMinute: o.minute
             ))
         }
 
@@ -612,7 +625,9 @@ enum TodayWidgetRowLoader {
                 isOneTime: false,
                 isHourly: false,
                 rawId: t.id,
-                todayYmd: today
+                todayYmd: today,
+                oneTimeHour: nil,
+                oneTimeMinute: nil
             ))
         }
 
@@ -631,7 +646,9 @@ enum TodayWidgetRowLoader {
                 isOneTime: false,
                 isHourly: true,
                 rawId: h.id,
-                todayYmd: today
+                todayYmd: today,
+                oneTimeHour: nil,
+                oneTimeMinute: nil
             ))
         }
 

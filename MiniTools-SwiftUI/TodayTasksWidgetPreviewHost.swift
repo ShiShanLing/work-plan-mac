@@ -6,6 +6,7 @@
 //  因此在主 App target 中用等价布局做画布调试；改 UI 时请与 `MiniToolsWidgets/TodayTasksWidget.swift` 保持同步。
 //
 
+import Foundation
 import SwiftUI
 import WidgetKit
 
@@ -19,6 +20,17 @@ private struct PreviewTodayRow: Identifiable {
     let isHourly: Bool
     let rawId: String
     let todayYmd: String
+    let oneTimeHour: Int?
+    let oneTimeMinute: Int?
+}
+
+private extension PreviewTodayRow {
+    var todayListDisplaySubtitle: String {
+        if isOneTime, let h = oneTimeHour, let m = oneTimeMinute {
+            return String(format: "定时 · %02d:%02d", h, m)
+        }
+        return subtitle
+    }
 }
 
 private struct PreviewNextUp {
@@ -233,7 +245,7 @@ private struct TodayTasksWidgetPreviewCanvas: View {
                 Text(row.title)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                Text(row.subtitle)
+                Text(row.todayListDisplaySubtitle)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -248,9 +260,9 @@ private struct TodayTasksWidgetPreviewCanvas: View {
 private enum TodayTasksWidgetPreviewData {
     static let ymd = "2026-03-31"
     static let rows: [PreviewTodayRow] = [
-        PreviewTodayRow(id: "o-1", title: "买牛奶", subtitle: "定时 · 09:30", isOneTime: true, isHourly: false, rawId: "preview-onetime", todayYmd: ymd),
-        PreviewTodayRow(id: "r-1", title: "团队例会", subtitle: "例行 · 每周一", isOneTime: false, isHourly: false, rawId: "preview-recurring", todayYmd: ymd),
-        PreviewTodayRow(id: "h-1", title: "喝水", subtitle: "时段 · 每 1 小时 · 09:00–17:30 · 仅工作日", isOneTime: false, isHourly: true, rawId: "preview-hourly", todayYmd: ymd),
+        PreviewTodayRow(id: "o-1", title: "买牛奶", subtitle: "定时 · 09:30", isOneTime: true, isHourly: false, rawId: "preview-onetime", todayYmd: ymd, oneTimeHour: 9, oneTimeMinute: 30),
+        PreviewTodayRow(id: "r-1", title: "团队例会", subtitle: "例行 · 每周一", isOneTime: false, isHourly: false, rawId: "preview-recurring", todayYmd: ymd, oneTimeHour: nil, oneTimeMinute: nil),
+        PreviewTodayRow(id: "h-1", title: "喝水", subtitle: "时段 · 每 1 小时 · 09:00–17:30 · 仅工作日", isOneTime: false, isHourly: true, rawId: "preview-hourly", todayYmd: ymd, oneTimeHour: nil, oneTimeMinute: nil),
     ]
     static let nextUp = PreviewNextUp(
         title: "交周报",

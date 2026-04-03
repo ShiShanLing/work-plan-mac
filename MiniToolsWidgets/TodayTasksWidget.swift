@@ -204,7 +204,7 @@ struct TodayTasksWidgetView: View {
                 Text(row.title)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
-                Text(row.subtitle)
+                Text(row.todayListDisplaySubtitle)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
