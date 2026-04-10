@@ -38,6 +38,8 @@ enum LocalJSONStore {
         return dir
     }
 
+    private static var didLogMissingAppGroup = false
+
     private static var directoryURL: URL {
         if let groupRoot = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: AppGroup.identifier) {
             let dir = groupRoot.appending(path: MiniToolsDataIsolation.appGroupJSONDirectoryName, directoryHint: .isDirectory)
@@ -52,6 +54,10 @@ enum LocalJSONStore {
             /// 小组件只能读 App Group，读不到主应用 Application Support；若此处曾是占位 `[]` 而 Support 里仍有数据，必须拷回。
             repairGroupJSONPlaceholdersFromLegacyIfNeeded(groupDir: dir)
             return dir
+        }
+        if !didLogMissingAppGroup {
+            didLogMissingAppGroup = true
+            AppLog.store.warning("App Group 容器不可用，JSON 仅写入本机 Application Support；桌面小组件只读共享容器，将无法显示这些任务。请确认主应用与 Widget Extension 在 Xcode「Signing & Capabilities」中勾选同一 App Group。")
         }
         return legacyDirectoryURL
     }

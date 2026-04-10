@@ -81,8 +81,19 @@ enum LocalCalendarDate {
         return String(format: "%04d-%02d-%02d", y, m, day)
     }
 
+    /// 解析 `YYYY-MM-DD`；若为 ISO8601 日期时间（含 `T`），只取日期段，与小组件 `WGCalendar.parseLocalYmd` 行为一致。
     static func parseLocalYmd(_ s: String, calendar: Calendar = .current) -> Date? {
-        let p = s.split(separator: "-").compactMap { Int($0) }
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let dayPart: String
+        if let t = trimmed.firstIndex(of: "T") {
+            dayPart = String(trimmed[..<t])
+        } else if trimmed.count >= 10 {
+            dayPart = String(trimmed.prefix(10))
+        } else {
+            dayPart = trimmed
+        }
+        let p = dayPart.split(separator: "-").compactMap { Int($0) }
         guard p.count == 3 else { return nil }
         var comps = DateComponents()
         comps.year = p[0]

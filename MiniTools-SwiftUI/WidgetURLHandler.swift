@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// 解析小组件发来的 `minitools://complete?...` URL，在应用内勾选对应一次性 / 例行 / 时段任务。
+/// 解析小组件发来的 `minitools://complete?...` URL，在应用内勾选对应一次性 / 例行 / 时段 / 需求清单。
 enum WidgetURLHandler {
     private static let scheme = "minitools"
 
@@ -29,6 +29,9 @@ enum WidgetURLHandler {
         case "hourly":
             guard let id = items["id"], let ymd = items["ymd"] else { return }
             store.setHourlyWindowTaskCompleted(taskId: id, ymd: ymd, done: true)
+        case "checklist":
+            guard let id = items["id"] else { return }
+            store.setProjectChecklistCompleted(id: id, completed: true)
         default:
             break
         }

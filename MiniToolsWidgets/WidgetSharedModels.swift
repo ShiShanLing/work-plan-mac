@@ -7,6 +7,11 @@
 
 import Foundation
 import MiniToolsCore
+import OSLog
+
+private enum TodayWidgetDebugLog {
+    static let log = Logger(subsystem: "com.MiniTools.www.MiniTools-SwiftUI", category: "TodayWidget")
+}
 
 /// 小组件扩展内使用的 App Group 标识（须与主 target 一致）。
 enum WidgetAppGroup {
@@ -89,8 +94,19 @@ enum WGCalendar {
         return String(format: "%04d-%02d-%02d", y, m, day)
     }
 
+    /// 解析 `YYYY-MM-DD`；若字符串为 ISO8601 日期时间（含 `T`），只取日期段，避免第三段变成 `15T00…` 导致解析失败。
     static func parseLocalYmd(_ s: String, calendar: Calendar = .current) -> Date? {
-        let p = s.split(separator: "-").compactMap { Int($0) }
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let dayPart: String
+        if let t = trimmed.firstIndex(of: "T") {
+            dayPart = String(trimmed[..<t])
+        } else if trimmed.count >= 10 {
+            dayPart = String(trimmed.prefix(10))
+        } else {
+            dayPart = trimmed
+        }
+        let p = dayPart.split(separator: "-").compactMap { Int($0) }
         guard p.count == 3 else { return nil }
         var comps = DateComponents()
         comps.year = p[0]
@@ -400,10 +416,199 @@ struct WGHourlyWindowTask: Codable, Identifiable {
     }
 }
 
+// MARK: - 需求清单（与主应用 `project_checklists.json` 一致，字段从简解码）
+
+/// 子任务行：仅解参与进度、完成态相关的键，其余 JSON 字段忽略。
+struct WGProjectChecklistSubItem: Decodable, Identifiable {
+    var id: String
+    var isCompleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, isCompleted
+    }
+
+    init(id: String, isCompleted: Bool) {
+        self.id = id
+        self.isCompleted = isCompleted
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let rawId = try c.decodeIfPresent(String.self, forKey: .id)
+        id = (rawId?.isEmpty == false) ? rawId! : UUID().uuidString
+        isCompleted = try c.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? false
+    }
+}
+
+/// 与主应用 `ProjectChecklist` 对齐的需求清单（小组件只读）。
+struct WGProjectChecklist: Decodable, Identifiable {
+    var id: String
+    var title: String
+    var startYmd: String?
+    var dueYmd: String?
+    var isCompleted: Bool
+    var items: [WGProjectChecklistSubItem]
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, startYmd, dueYmd, isCompleted, items
+    }
+
+    init(id: String, title: String, startYmd: String?, dueYmd: String?, isCompleted: Bool, items: [WGProjectChecklistSubItem]) {
+        self.id = id
+        self.title = title
+        self.startYmd = startYmd
+        self.dueYmd = dueYmd
+        self.isCompleted = isCompleted
+        self.items = items
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        startYmd = try c.decodeIfPresent(String.self, forKey: .startYmd)
+        dueYmd = try c.decodeIfPresent(String.self, forKey: .dueYmd)
+        isCompleted = try c.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? false
+        /// 子项数组异常或缺失时降级为空，避免整份需求清单无法解码。
+        items = (try? c.decodeIfPresent([WGProjectChecklistSubItem].self, forKey: .items)) ?? []
+    }
+
+    /// 整文件 `JSONDecoder` 失败时，从字典逐条容错解析（避免子项结构差异导致小组件读不到清单）。
+    init?(lossyDict obj: [String: Any]) {
+        guard let id = obj["id"] as? String, !id.isEmpty else { return nil }
+        let title = obj["title"] as? String ?? ""
+        let startYmd = Self.ymdStringFromLossyJSON(obj["startYmd"])
+        let dueYmd = Self.ymdStringFromLossyJSON(obj["dueYmd"])
+        let isCompleted = obj["isCompleted"] as? Bool ?? false
+        let items = Self.parseItemsLossy(obj["items"])
+        self.init(id: id, title: title, startYmd: startYmd, dueYmd: dueYmd, isCompleted: isCompleted, items: items)
+    }
+
+    /// lossy 解码时 `startYmd`/`dueYmd` 可能是字符串或其它 JSON 标量（历史数据、手改文件）。
+    private static func ymdStringFromLossyJSON(_ any: Any?) -> String? {
+        switch any {
+        case nil:
+            return nil
+        case let s as String:
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        case let n as NSNumber:
+            let t = n.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        default:
+            return nil
+        }
+    }
+
+    private static func parseItemsLossy(_ any: Any?) -> [WGProjectChecklistSubItem] {
+        guard let arr = any as? [[String: Any]] else { return [] }
+        return arr.compactMap { d in
+            let id = (d["id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
+            let done = d["isCompleted"] as? Bool ?? false
+            return WGProjectChecklistSubItem(id: id, isCompleted: done)
+        }
+    }
+
+    static func lossyArray(from data: Data) -> [WGProjectChecklist]? {
+        guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+        let parsed = arr.compactMap { WGProjectChecklist(lossyDict: $0) }
+        return parsed.isEmpty ? nil : parsed
+    }
+
+    /// 与主应用 `ProjectChecklist.showsOnCalendar(on:calendar:)` 一致。
+    /// 使用「日历日」比较，避免 `yyyy-M-d` 与 `yyyy-MM-dd` 混用时 **字符串** 比较出错。
+    func showsOnCalendar(on ymd: String, calendar: Calendar = .current) -> Bool {
+        guard let yDay = WGCalendar.parseLocalYmd(ymd, calendar: calendar) else { return false }
+        let y0 = calendar.startOfDay(for: yDay)
+        switch (startYmd, dueYmd) {
+        case (nil, nil):
+            return false
+        case let (s?, nil):
+            guard let dS = WGCalendar.parseLocalYmd(s, calendar: calendar) else { return false }
+            return calendar.isDate(y0, inSameDayAs: dS)
+        case let (nil, d?):
+            guard let dD = WGCalendar.parseLocalYmd(d, calendar: calendar) else { return false }
+            return calendar.isDate(y0, inSameDayAs: dD)
+        case let (s?, d?):
+            guard let dS = WGCalendar.parseLocalYmd(s, calendar: calendar),
+                  let dE = WGCalendar.parseLocalYmd(d, calendar: calendar)
+            else { return false }
+            var s0 = calendar.startOfDay(for: dS)
+            var e0 = calendar.startOfDay(for: dE)
+            if s0 > e0 { swap(&s0, &e0) }
+            return y0 >= s0 && y0 <= e0
+        }
+    }
+
+    private var completedSubItemCount: Int { items.filter(\.isCompleted).count }
+    private var totalSubItemCount: Int { items.count }
+
+    private func subtaskProgressLine() -> String {
+        if totalSubItemCount == 0 { return "无子项" }
+        return "\(completedSubItemCount)/\(totalSubItemCount) 子项"
+    }
+
+    private func calendarDateSummary() -> String {
+        switch (startYmd, dueYmd) {
+        case (nil, nil):
+            return "未设日期"
+        case let (s?, nil):
+            return "自 \(Self.compactYmd(s)) 起"
+        case let (nil, d?):
+            return "截止 \(Self.compactYmd(d))"
+        case let (s?, d?):
+            return "\(Self.compactYmd(s)) – \(Self.compactYmd(d))"
+        }
+    }
+
+    /// 与主应用 `calendarDetailLine()` 一致，用于副标题。
+    func calendarDetailLine() -> String {
+        let progress = subtaskProgressLine()
+        let dates = calendarDateSummary()
+        if dates == "未设日期" {
+            return progress
+        }
+        return "\(progress) · \(dates)"
+    }
+
+    private static func compactYmd(_ ymd: String) -> String {
+        let p = ymd.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return ymd }
+        return "\(p[1])/\(p[2])"
+    }
+
+    /// 在清单仍覆盖的日期内，取 **不早于** `todayYmd` 的最早一日；与月历「某日是否出现」一致。
+    /// 使用 `Date` 比较，避免仅「开始日」在未来时因字符串序错误而判成「无下一日」。
+    func earliestCalendarYmd(onOrAfter todayYmd: String, calendar: Calendar = .current) -> String? {
+        guard let tDay = WGCalendar.parseLocalYmd(todayYmd, calendar: calendar) else { return nil }
+        let t0 = calendar.startOfDay(for: tDay)
+        switch (startYmd, dueYmd) {
+        case (nil, nil):
+            return nil
+        case let (s?, nil), let (nil, s?):
+            guard let dS = WGCalendar.parseLocalYmd(s, calendar: calendar) else { return nil }
+            let s0 = calendar.startOfDay(for: dS)
+            if s0 >= t0 { return WGCalendar.localYmd(s0, calendar: calendar) }
+            return nil
+        case let (s?, d?):
+            guard let dS = WGCalendar.parseLocalYmd(s, calendar: calendar),
+                  let dE = WGCalendar.parseLocalYmd(d, calendar: calendar)
+            else { return nil }
+            var s0 = calendar.startOfDay(for: dS)
+            var e0 = calendar.startOfDay(for: dE)
+            if s0 > e0 { swap(&s0, &e0) }
+            let lower = max(s0, t0)
+            if lower <= e0 { return WGCalendar.localYmd(lower, calendar: calendar) }
+            return nil
+        }
+    }
+}
+
 // MARK: - IO
 
 /// App Group 下读写与主应用相同的 JSON 数组（读优先非空文件；扩展侧少量写回用于调试或将来能力）。
 enum TodayWidgetIO {
+    private static var didLogMissingGroupContainer = false
     private static let decoder = JSONDecoder()
     private static let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -425,21 +630,21 @@ enum TodayWidgetIO {
         return nil
     }
 
-    /// 与 `LocalJSONStore` 一致：优先 App Group 下 `MiniToolsData` 子目录，否则回退扩展自身 Sandbox 下 `Application Support/MiniTools-SwiftUI`（通常为空，仅兜底）。
+    /// 仅 **App Group** 下 `MiniToolsData`（与 `LocalJSONStore` 一致）。
+    /// 不在此回退到 `Application Support`：扩展进程的 Support 与主应用 **不是同一目录**，读不到主应用写入的 JSON，只会造成「App 里有数据、小组件永远空」的假问题。
     private static func jsonURLs(fileName: String) -> [URL] {
-        var urls: [URL] = []
-        if let root = appGroupContainerRoot() {
-            let dir = root.appending(path: MiniToolsDataIsolation.appGroupJSONDirectoryName, directoryHint: .isDirectory)
-            urls.append(dir.appending(path: fileName, directoryHint: .notDirectory))
+        guard let root = appGroupContainerRoot() else {
+            if !didLogMissingGroupContainer {
+                didLogMissingGroupContainer = true
+                TodayWidgetDebugLog.log.error("App Group 容器不可用，无法读取共享 JSON（例如 \(fileName, privacy: .public)）；请检查扩展的 App Group 能力。")
+            }
+            return []
         }
-        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let dir = appSupport.appending(path: "MiniTools-SwiftUI", directoryHint: .isDirectory)
-            urls.append(dir.appending(path: fileName, directoryHint: .notDirectory))
-        }
-        return urls
+        let dir = root.appending(path: MiniToolsDataIsolation.appGroupJSONDirectoryName, directoryHint: .isDirectory)
+        return [dir.appending(path: fileName, directoryHint: .notDirectory)]
     }
 
-    /// 对 **数组** JSON：优先返回**第一个非空**解码结果。若 Group 里是 `[]` 仍会继续尝试 Application Support（避免误判为无数据）。
+    /// 对 **数组** JSON：返回首个非空解码结果（单一路径，见 `jsonURLs`）。
     private static func loadJSONArray<Element: Decodable>(_ type: [Element].Type, fileName: String) -> [Element] {
         var fallbackEmpty: [Element]?
         for url in jsonURLs(fileName: fileName) {
@@ -480,6 +685,32 @@ enum TodayWidgetIO {
         loadJSONArray([WGHourlyWindowTask].self, fileName: "hourly_window_tasks.json")
     }
 
+    static func loadProjectChecklists() -> [WGProjectChecklist] {
+        let groupRoot = appGroupContainerRoot()?.path ?? "(nil)"
+        TodayWidgetDebugLog.log.debug("loadProjectChecklists: appGroupRoot=\(groupRoot, privacy: .public)")
+        for url in jsonURLs(fileName: "project_checklists.json") {
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            TodayWidgetDebugLog.log.debug("  try path=\(url.path, privacy: .public) exists=\(exists, privacy: .public)")
+            guard exists else { continue }
+            guard let data = try? Data(contentsOf: url), !data.isEmpty else { continue }
+            if let v = try? decoder.decode([WGProjectChecklist].self, from: data) {
+                if !v.isEmpty {
+                    TodayWidgetDebugLog.log.debug("  decoded strict count=\(v.count, privacy: .public)")
+                    return v
+                }
+                TodayWidgetDebugLog.log.debug("  strict decode ok but empty [], try next URL")
+                continue
+            }
+            if let lossy = WGProjectChecklist.lossyArray(from: data), !lossy.isEmpty {
+                TodayWidgetDebugLog.log.debug("  decoded lossy count=\(lossy.count, privacy: .public)")
+                return lossy
+            }
+            TodayWidgetDebugLog.log.debug("  decode failed (strict+lossy) for this file")
+        }
+        TodayWidgetDebugLog.log.debug("loadProjectChecklists: returning empty")
+        return []
+    }
+
     static func saveRecurring(_ items: [WGRecurringTask]) throws {
         guard let dir = dataDirectory else { throw CocoaError(.fileNoSuchFile) }
         let url = dir.appending(path: "recurring_tasks.json", directoryHint: .notDirectory)
@@ -490,7 +721,7 @@ enum TodayWidgetIO {
 
 // MARK: - 今日行（小组件用）
 
-/// 「今日待办」列表中的一行展示数据（定时 / 例行 / 时段），用于 SwiftUI 与 `WidgetDeepLink`。
+/// 「今日待办」列表中的一行展示数据（定时 / 例行 / 需求清单 / 时段），用于 SwiftUI 与 `WidgetDeepLink`。
 struct TodayRowData: Identifiable {
     let id: String
     let title: String
@@ -498,6 +729,8 @@ struct TodayRowData: Identifiable {
     let isOneTime: Bool
     /// `true` 时表示时段任务，`isOneTime` 为 `false`。
     let isHourly: Bool
+    /// `true` 时表示需求清单；与 `isOneTime`、`isHourly` 互斥。
+    let isProjectChecklist: Bool
     let rawId: String
     let todayYmd: String
     /// 仅一次性提醒有值；列表副标题只认此处 + `isOneTime`，不依赖 `subtitle` 字符串（避免时间线缓存里夹带旧版「日期+时间」文案）。
@@ -519,6 +752,8 @@ struct NextUpTaskInfo {
     let detail: String
     let isOneTime: Bool
     let isHourly: Bool
+    /// `true` 表示需求清单（与例行区分：两者 `isOneTime`/`isHourly` 均为 `false`）。
+    let isProjectChecklist: Bool
     let rawId: String
     /// 例行任务勾选链接必填；一次性可填 `dateYmd` 备用。
     let ymdForRecurring: String
@@ -536,41 +771,49 @@ enum TodayWidgetRowLoader {
 
     /// 与 `loadNextUpcoming` 使用同一时间基准，避免跨午夜或单次调用内时钟不一致。
     /// 「下一次」始终计算：`rows` 中已有条目（今日待办）通过 `skip` 排除，避免与列表重复；今日全完成且 `rows` 为空时仍可看到下一档何时、何事。
-    static func loadEntry(at now: Date) -> (rows: [TodayRowData], nextUp: NextUpTaskInfo?) {
+    /// `nextUpChecklist`：当主条被定时/例行/时段等占满时，单独预告「即将的需求清单」，避免被每日例行永远压在后面。
+    static func loadEntry(at now: Date) -> (rows: [TodayRowData], nextUp: NextUpTaskInfo?, nextUpChecklist: NextUpTaskInfo?) {
         let cal = widgetCalendar
         let oneTimes = TodayWidgetIO.loadOneTimes()
         let recurring = TodayWidgetIO.loadRecurring()
         let hourly = TodayWidgetIO.loadHourlyWindow()
+        let checklists = TodayWidgetIO.loadProjectChecklists()
         let rows = makeRows(
             now: now,
             calendar: cal,
             oneTimes: oneTimes,
             recurring: recurring,
-            hourly: hourly
+            hourly: hourly,
+            checklists: checklists
         )
         var skipOneTimeIds: Set<String> = []
         var skipRecurringDayKeys: Set<String> = []
         var skipHourlyDayKeys: Set<String> = []
+        var skipChecklistIds: Set<String> = []
         for row in rows {
             if row.isOneTime {
                 skipOneTimeIds.insert(row.rawId)
             } else if row.isHourly {
                 skipHourlyDayKeys.insert("\(row.rawId)|\(row.todayYmd)")
+            } else if row.isProjectChecklist {
+                skipChecklistIds.insert(row.rawId)
             } else {
                 skipRecurringDayKeys.insert("\(row.rawId)|\(row.todayYmd)")
             }
         }
-        let next = computeNextUpcoming(
+        let (next, nextChecklist) = computeNextUpcoming(
             now: now,
             calendar: cal,
             oneTimes: oneTimes,
             recurring: recurring,
             hourly: hourly,
+            checklists: checklists,
             skipOneTimeIds: skipOneTimeIds,
             skipRecurringDayKeys: skipRecurringDayKeys,
-            skipHourlyDayKeys: skipHourlyDayKeys
+            skipHourlyDayKeys: skipHourlyDayKeys,
+            skipChecklistIds: skipChecklistIds
         )
-        return (rows, next)
+        return (rows, next, nextChecklist)
     }
 
     static func loadRows(now: Date, calendar cal: Calendar) -> [TodayRowData] {
@@ -579,7 +822,8 @@ enum TodayWidgetRowLoader {
             calendar: cal,
             oneTimes: TodayWidgetIO.loadOneTimes(),
             recurring: TodayWidgetIO.loadRecurring(),
-            hourly: TodayWidgetIO.loadHourlyWindow()
+            hourly: TodayWidgetIO.loadHourlyWindow(),
+            checklists: TodayWidgetIO.loadProjectChecklists()
         )
     }
 
@@ -588,7 +832,8 @@ enum TodayWidgetRowLoader {
         calendar cal: Calendar,
         oneTimes: [WGOneTimeReminder],
         recurring: [WGRecurringTask],
-        hourly: [WGHourlyWindowTask]
+        hourly: [WGHourlyWindowTask],
+        checklists: [WGProjectChecklist]
     ) -> [TodayRowData] {
         let today = WGCalendar.localYmd(now, calendar: cal)
         var rows: [TodayRowData] = []
@@ -606,6 +851,7 @@ enum TodayWidgetRowLoader {
                 subtitle: "定时 · \(o.fireSummaryTimeTodayRow())",
                 isOneTime: true,
                 isHourly: false,
+                isProjectChecklist: false,
                 rawId: o.id,
                 todayYmd: today,
                 oneTimeHour: o.hour,
@@ -637,7 +883,26 @@ enum TodayWidgetRowLoader {
                 subtitle: "例行 · \(WGCalendar.recurrenceLabel(t.recurrence))",
                 isOneTime: false,
                 isHourly: false,
+                isProjectChecklist: false,
                 rawId: t.id,
+                todayYmd: today,
+                oneTimeHour: nil,
+                oneTimeMinute: nil
+            ))
+        }
+
+        let pcs = checklists
+            .filter { !$0.isCompleted && $0.showsOnCalendar(on: today, calendar: cal) }
+            .sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+        for p in pcs {
+            rows.append(TodayRowData(
+                id: "c-\(p.id)",
+                title: p.title.isEmpty ? "（无标题）" : p.title,
+                subtitle: "清单 · \(p.calendarDetailLine())",
+                isOneTime: false,
+                isHourly: false,
+                isProjectChecklist: true,
+                rawId: p.id,
                 todayYmd: today,
                 oneTimeHour: nil,
                 oneTimeMinute: nil
@@ -658,6 +923,7 @@ enum TodayWidgetRowLoader {
                 subtitle: "时段 · \(h.summaryScheduleLabel())",
                 isOneTime: false,
                 isHourly: true,
+                isProjectChecklist: false,
                 rawId: h.id,
                 todayYmd: today,
                 oneTimeHour: nil,
@@ -671,7 +937,7 @@ enum TodayWidgetRowLoader {
     private static let upcomingScanDays = 1200
 
     /// 未完成的一次性提醒（按触发时刻）或例行任务（下一到期日且该日未勾选）中时间上更早的一条。
-    static func loadNextUpcoming(now: Date = Date(), calendar cal: Calendar? = nil) -> NextUpTaskInfo? {
+    static func loadNextUpcoming(now: Date = Date(), calendar cal: Calendar? = nil) -> (NextUpTaskInfo?, NextUpTaskInfo?) {
         let c = cal ?? widgetCalendar
         return computeNextUpcoming(
             now: now,
@@ -679,9 +945,24 @@ enum TodayWidgetRowLoader {
             oneTimes: TodayWidgetIO.loadOneTimes(),
             recurring: TodayWidgetIO.loadRecurring(),
             hourly: TodayWidgetIO.loadHourlyWindow(),
+            checklists: TodayWidgetIO.loadProjectChecklists(),
             skipOneTimeIds: [],
             skipRecurringDayKeys: [],
-            skipHourlyDayKeys: []
+            skipHourlyDayKeys: [],
+            skipChecklistIds: []
+        )
+    }
+
+    private static func nextUpInfoForChecklist(_ p: WGProjectChecklist, ymd: String) -> NextUpTaskInfo {
+        let detail = "\(ymd) (\(p.calendarDetailLine())) (清单)"
+        return NextUpTaskInfo(
+            title: p.title.isEmpty ? "（无标题）" : p.title,
+            detail: detail,
+            isOneTime: false,
+            isHourly: false,
+            isProjectChecklist: true,
+            rawId: p.id,
+            ymdForRecurring: ymd
         )
     }
 
@@ -691,33 +972,38 @@ enum TodayWidgetRowLoader {
         oneTimes allOne: [WGOneTimeReminder],
         recurring allRec: [WGRecurringTask],
         hourly allHourly: [WGHourlyWindowTask],
+        checklists allChecklists: [WGProjectChecklist],
         skipOneTimeIds: Set<String> = [],
         skipRecurringDayKeys: Set<String> = [],
-        skipHourlyDayKeys: Set<String> = []
-    ) -> NextUpTaskInfo? {
+        skipHourlyDayKeys: Set<String> = [],
+        skipChecklistIds: Set<String> = []
+    ) -> (NextUpTaskInfo?, NextUpTaskInfo?) {
         let startToday = c.startOfDay(for: now)
 
         let oneTimes = allOne.filter { !$0.isCompleted }
-        var bestOne: WGOneTimeReminder?
-        var bestOneFire: Date?
-
+        /// 触发时刻 **不早于** `now` 的定时（用于与其它「未来」候选比较）。
+        var bestOneFuture: WGOneTimeReminder?
+        var bestOneFireFuture: Date?
         for o in oneTimes {
             guard !skipOneTimeIds.contains(o.id) else { continue }
             guard let fd = o.fireDate(calendar: c) else { continue }
             if fd >= now {
-                if bestOneFire == nil || fd < bestOneFire! {
-                    bestOne = o
-                    bestOneFire = fd
+                if bestOneFireFuture == nil || fd < bestOneFireFuture! {
+                    bestOneFuture = o
+                    bestOneFireFuture = fd
                 }
             }
         }
-        if bestOneFire == nil {
-            for o in oneTimes {
-                guard !skipOneTimeIds.contains(o.id) else { continue }
-                guard let fd = o.fireDate(calendar: c) else { continue }
-                if bestOneFire == nil || fd < bestOneFire! {
-                    bestOne = o
-                    bestOneFire = fd
+        /// 已过期的一次性提醒（仅当不存在任何「未来」候选时作为「下次」回退，避免压住若干天后的需求清单）。
+        var bestOnePast: WGOneTimeReminder?
+        var bestOneFirePast: Date?
+        for o in oneTimes {
+            guard !skipOneTimeIds.contains(o.id) else { continue }
+            guard let fd = o.fireDate(calendar: c) else { continue }
+            if fd < now {
+                if bestOneFirePast == nil || fd < bestOneFirePast! {
+                    bestOnePast = o
+                    bestOneFirePast = fd
                 }
             }
         }
@@ -764,10 +1050,37 @@ enum TodayWidgetRowLoader {
             }
         }
 
-        enum Winner { case one, rec, hourly }
+        var bestPc: WGProjectChecklist?
+        var bestPcDate: Date?
+        var bestPcYmd: String?
+
+        let todayYmd = WGCalendar.localYmd(now, calendar: c)
+        for p in allChecklists {
+            guard !p.isCompleted else { continue }
+            /// 今日已在「今日待办」出现的需求清单不参与「下次待办」（避免与今日重复；区间内其它日也不在此栏预告同一条）。
+            guard !skipChecklistIds.contains(p.id) else { continue }
+            guard let ymd = p.earliestCalendarYmd(onOrAfter: todayYmd, calendar: c) else { continue }
+            guard p.showsOnCalendar(on: ymd, calendar: c) else { continue }
+            guard let dayDate = WGCalendar.parseLocalYmd(ymd, calendar: c) else { continue }
+            let sortDate = c.startOfDay(for: dayDate)
+            if bestPcDate == nil || sortDate < bestPcDate! {
+                bestPc = p
+                bestPcDate = sortDate
+                bestPcYmd = ymd
+            } else if let b = bestPcDate, sortDate == b, let cur = bestPc {
+                if p.title.localizedCompare(cur.title) == .orderedAscending {
+                    bestPc = p
+                    bestPcYmd = ymd
+                }
+            }
+        }
+
+        enum Winner { case one, rec, hourly, checklist }
         var winner: Winner?
         var winDate: Date?
-        if let o = bestOneFire {
+        var oneTimeWinnerIsPast = false
+
+        if let o = bestOneFireFuture {
             winner = .one
             winDate = o
         }
@@ -783,55 +1096,82 @@ enum TodayWidgetRowLoader {
                 winDate = h
             }
         }
-        guard winner != nil else { return nil }
+        if let pc = bestPcDate {
+            if winDate == nil || pc < winDate! {
+                winner = .checklist
+                winDate = pc
+            }
+        }
+        if winner == nil, let d = bestOneFirePast {
+            winner = .one
+            winDate = d
+            oneTimeWinnerIsPast = true
+        }
+        TodayWidgetDebugLog.log.debug(
+            "computeNextUpcoming: today=\(todayYmd, privacy: .public) checklists=\(allChecklists.count, privacy: .public) skipPc=\(skipChecklistIds.count, privacy: .public) winner=\(String(describing: winner), privacy: .public) bestPcYmd=\(bestPcYmd ?? "nil", privacy: .public)"
+        )
+        guard winner != nil else { return (nil, nil) }
 
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh-Hans")
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "yyyy-MM-dd EEEE"
-
+        // 「下次待办」副标题：`yyyy-MM-dd HH:mm (说明)`，说明里为规则文案（与预览 host 一致）。
+        let primary: NextUpTaskInfo?
         switch winner! {
         case .one:
-            guard let o = bestOne, let ft = bestOneFire else { return nil }
-            let dayLabel = formatter.string(from: ft)
+            guard let o = oneTimeWinnerIsPast ? bestOnePast : bestOneFuture else { return (nil, nil) }
             let timeStr = String(format: "%02d:%02d", o.hour, o.minute)
-            return NextUpTaskInfo(
+            let detail = "\(o.dateYmd) \(timeStr) (定时)"
+            primary = NextUpTaskInfo(
                 title: o.title.isEmpty ? "（无标题）" : o.title,
-                detail: "\(dayLabel) · \(timeStr) · 定时",
+                detail: detail,
                 isOneTime: true,
                 isHourly: false,
+                isProjectChecklist: false,
                 rawId: o.id,
                 ymdForRecurring: o.dateYmd
             )
         case .rec:
-            guard let r = bestRecTask, let rt = bestRecDate, let ymd = bestRecYmd else { return nil }
-            let timeStr = String(format: "%02d:%02d", r.notifyHour, r.notifyMinute)
-            let dayLabel = formatter.string(from: rt)
-            let sched = r.notifyEnabled ? "提醒 \(timeStr)" : "无时间提醒"
-            return NextUpTaskInfo(
+            guard let r = bestRecTask, let ymd = bestRecYmd else { return (nil, nil) }
+            let recLabel = WGCalendar.recurrenceLabel(r.recurrence)
+            let detail: String
+            if r.notifyEnabled {
+                let timeStr = String(format: "%02d:%02d", r.notifyHour, r.notifyMinute)
+                detail = "\(ymd) \(timeStr) (\(recLabel))"
+            } else {
+                detail = "\(ymd) (\(recLabel))"
+            }
+            primary = NextUpTaskInfo(
                 title: r.title.isEmpty ? "（无标题）" : r.title,
-                detail: "\(dayLabel) · \(sched) · \(WGCalendar.recurrenceLabel(r.recurrence))",
+                detail: detail,
                 isOneTime: false,
                 isHourly: false,
+                isProjectChecklist: false,
                 rawId: r.id,
                 ymdForRecurring: ymd
             )
         case .hourly:
-            guard let h = bestHourlyTask, let ht = bestHourlyDate, let ymd = bestHourlyYmd else { return nil }
-            let dayLabel = formatter.string(from: ht)
+            guard let h = bestHourlyTask, let ht = bestHourlyDate, let ymd = bestHourlyYmd else { return (nil, nil) }
             let hcomp = c.component(.hour, from: ht)
             let mcomp = c.component(.minute, from: ht)
             let timeStr = String(format: "%02d:%02d", hcomp, mcomp)
-            let sched = h.notifyEnabled ? "提醒 \(timeStr)" : "下一档 \(timeStr)"
-            return NextUpTaskInfo(
+            let detail = "\(ymd) \(timeStr) (\(h.summaryScheduleLabel()))"
+            primary = NextUpTaskInfo(
                 title: h.title.isEmpty ? "（无标题）" : h.title,
-                detail: "\(dayLabel) · \(sched) · \(h.summaryScheduleLabel())",
+                detail: detail,
                 isOneTime: false,
                 isHourly: true,
+                isProjectChecklist: false,
                 rawId: h.id,
                 ymdForRecurring: ymd
             )
+        case .checklist:
+            guard let p = bestPc, let ymd = bestPcYmd else { return (nil, nil) }
+            primary = nextUpInfoForChecklist(p, ymd: ymd)
         }
+
+        var checklistSecondary: NextUpTaskInfo?
+        if winner != .checklist, let p = bestPc, let ymd = bestPcYmd {
+            checklistSecondary = nextUpInfoForChecklist(p, ymd: ymd)
+        }
+        return (primary, checklistSecondary)
     }
 
     private static func firstPendingHourlySlot(

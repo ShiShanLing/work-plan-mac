@@ -9,9 +9,19 @@ import AppKit
 import SwiftUI
 
 // MARK: - 模型
-
 /// 月历某日点击后展示的汇总行：定时 / 例行 / 清单及其展示文案与删除语义。
 private struct CalendarTaskRow: Identifiable, Equatable {
+  enum TestEnum {
+    case red
+    case yellow
+    fileprivate var getColor:String {
+      switch self {
+      case .red: return "这是红色"
+      case .yellow: return "这是黄色"
+      }
+
+    }
+  }
     enum Kind: String {
         case oneTime = "定时"
         case recurring = "例行"
@@ -154,7 +164,7 @@ private enum TasksCalendarLogic {
             ))
         }
 
-        let pcBase = store.projectChecklists.filter { $0.showsOnCalendar(on: ymd) }
+        let pcBase = store.projectChecklists.filter { $0.showsOnCalendar(on: ymd, calendar: cal) }
         let pcSorted = pcBase.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
         let pcInc = pcSorted.filter { !$0.isCompleted }
         let pcDone = pcSorted.filter(\.isCompleted)
@@ -187,6 +197,29 @@ private enum TasksCalendarLogic {
     }
 }
 
+
+
+struct TestView:View {
+  var body: some View {
+    HStack(alignment: .top){
+      Text("测试文字")
+        .foregroundStyle(.red)
+        .background(Color.orange)
+        .font(.largeTitle)
+        .padding(10)
+        .clipShape(
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .contentMargins(.all, 10)
+
+
+
+    }
+  }
+}
+#Preview {
+  TestView();
+}
 // MARK: - 视图
 
 /// 日历 Tab：月历展示定时与例行（及清单）分布，点格进入当日任务 sheet。

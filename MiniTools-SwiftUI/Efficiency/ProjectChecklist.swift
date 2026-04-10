@@ -253,16 +253,27 @@ struct ProjectChecklist: Codable, Identifiable, Equatable, Hashable, Sendable {
     }
 
     /// 用于月历：`start`+`due` 为闭区间；仅 `start` 或仅 `due` 则只在该日显示。
-    func showsOnCalendar(on ymd: String) -> Bool {
+    /// 使用日历日比较（与小组件一致），支持 `YYYY-MM-DD` 与带 `T` 的 ISO 日期时间前缀；区间若反序则按起止对调后判断。
+    func showsOnCalendar(on ymd: String, calendar: Calendar = .current) -> Bool {
+        guard let yDay = LocalCalendarDate.parseLocalYmd(ymd, calendar: calendar) else { return false }
+        let y0 = calendar.startOfDay(for: yDay)
         switch (startYmd, dueYmd) {
         case (nil, nil):
             return false
         case let (s?, nil):
-            return ymd == s
+            guard let dS = LocalCalendarDate.parseLocalYmd(s, calendar: calendar) else { return false }
+            return calendar.isDate(y0, inSameDayAs: dS)
         case let (nil, d?):
-            return ymd == d
+            guard let dD = LocalCalendarDate.parseLocalYmd(d, calendar: calendar) else { return false }
+            return calendar.isDate(y0, inSameDayAs: dD)
         case let (s?, d?):
-            return ymd >= s && ymd <= d
+            guard let dS = LocalCalendarDate.parseLocalYmd(s, calendar: calendar),
+                  let dE = LocalCalendarDate.parseLocalYmd(d, calendar: calendar)
+            else { return false }
+            var s0 = calendar.startOfDay(for: dS)
+            var e0 = calendar.startOfDay(for: dE)
+            if s0 > e0 { swap(&s0, &e0) }
+            return y0 >= s0 && y0 <= e0
         }
     }
 

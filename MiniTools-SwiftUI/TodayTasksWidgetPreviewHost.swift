@@ -18,6 +18,7 @@ private struct PreviewTodayRow: Identifiable {
     let subtitle: String
     let isOneTime: Bool
     let isHourly: Bool
+    let isProjectChecklist: Bool
     let rawId: String
     let todayYmd: String
     let oneTimeHour: Int?
@@ -46,6 +47,7 @@ private struct PreviewWidgetEntry {
     let date: Date
     let rows: [PreviewTodayRow]
     let nextUp: PreviewNextUp?
+    let nextUpChecklist: PreviewNextUp?
 }
 
 private enum PreviewDeepLink {
@@ -65,6 +67,11 @@ private enum PreviewDeepLink {
                 URLQueryItem(name: "type", value: "hourly"),
                 URLQueryItem(name: "id", value: row.rawId),
                 URLQueryItem(name: "ymd", value: row.todayYmd),
+            ]
+        } else if row.isProjectChecklist {
+            c.queryItems = [
+                URLQueryItem(name: "type", value: "checklist"),
+                URLQueryItem(name: "id", value: row.rawId),
             ]
         } else {
             c.queryItems = [
@@ -98,13 +105,13 @@ private struct TodayTasksWidgetPreviewCanvas: View {
     }
 
     var body: some View {
-        let pack = (rows: entry.rows, nextUp: entry.nextUp)
+        let pack = (rows: entry.rows, nextUp: entry.nextUp, nextUpChecklist: entry.nextUpChecklist)
         widgetLayout(pack: pack)
             .padding(8)
     }
 
     @ViewBuilder
-    private func widgetLayout(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?)) -> some View {
+    private func widgetLayout(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?, nextUpChecklist: PreviewNextUp?)) -> some View {
         switch family {
         case .systemSmall:
             compactVerticalLayout(pack: pack)
@@ -115,7 +122,7 @@ private struct TodayTasksWidgetPreviewCanvas: View {
         }
     }
 
-    private func compactVerticalLayout(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?)) -> some View {
+    private func compactVerticalLayout(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?, nextUpChecklist: PreviewNextUp?)) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("今日待办")
                 .font(sectionTitleFont)
@@ -140,7 +147,7 @@ private struct TodayTasksWidgetPreviewCanvas: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func twoColumnLayout(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?)) -> some View {
+    private func twoColumnLayout(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?, nextUpChecklist: PreviewNextUp?)) -> some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("今日待办")
@@ -168,13 +175,22 @@ private struct TodayTasksWidgetPreviewCanvas: View {
     }
 
     @ViewBuilder
-    private func nextUpSection(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?)) -> some View {
+    private func nextUpSection(pack: (rows: [PreviewTodayRow], nextUp: PreviewNextUp?, nextUpChecklist: PreviewNextUp?)) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("下次待办")
                 .font(sectionTitleFont)
                 .foregroundStyle(.primary)
             if let next = pack.nextUp {
-                nextUpContent(next)
+                nextUpContent(next, showLink: pack.nextUpChecklist == nil)
+                if let pc = pack.nextUpChecklist {
+                    Divider().padding(.vertical, 2)
+                    Text("即将的需求清单")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    nextUpContent(pc, showLink: true)
+                }
+            } else if let pc = pack.nextUpChecklist {
+                nextUpContent(pc, showLink: true)
             } else {
                 Text("没其他任务")
                     .font(.caption)
@@ -185,7 +201,7 @@ private struct TodayTasksWidgetPreviewCanvas: View {
     }
 
     @ViewBuilder
-    private func nextUpContent(_ next: PreviewNextUp) -> some View {
+    private func nextUpContent(_ next: PreviewNextUp, showLink: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(next.title)
                 .font(family == .systemSmall ? .caption.weight(.semibold) : .subheadline.weight(.medium))
@@ -196,9 +212,11 @@ private struct TodayTasksWidgetPreviewCanvas: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(family == .systemSmall ? 4 : 5)
-            Link("在 App 中查看", destination: PreviewDeepLink.openAppURL)
-                .font(.caption2)
-                .padding(.top, 2)
+            if showLink {
+                Link("在 App 中查看", destination: PreviewDeepLink.openAppURL)
+                    .font(.caption2)
+                    .padding(.top, 2)
+            }
         }
     }
 
@@ -249,7 +267,7 @@ private struct TodayTasksWidgetPreviewCanvas: View {
                 Text(row.todayListDisplaySubtitle)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -261,25 +279,36 @@ private struct TodayTasksWidgetPreviewCanvas: View {
 private enum TodayTasksWidgetPreviewData {
     static let ymd = "2026-03-31"
     static let rows: [PreviewTodayRow] = [
-        PreviewTodayRow(id: "o-1", title: "买牛奶", subtitle: "定时 · 09:30", isOneTime: true, isHourly: false, rawId: "preview-onetime", todayYmd: ymd, oneTimeHour: 9, oneTimeMinute: 30),
-        PreviewTodayRow(id: "r-1", title: "团队例会", subtitle: "例行 · 每周一", isOneTime: false, isHourly: false, rawId: "preview-recurring", todayYmd: ymd, oneTimeHour: nil, oneTimeMinute: nil),
-        PreviewTodayRow(id: "h-1", title: "喝水", subtitle: "时段 · 每 1 小时 · 09:00–17:30 · 仅工作日", isOneTime: false, isHourly: true, rawId: "preview-hourly", todayYmd: ymd, oneTimeHour: nil, oneTimeMinute: nil),
+        PreviewTodayRow(id: "o-1", title: "买牛奶", subtitle: "定时 · 09:30", isOneTime: true, isHourly: false, isProjectChecklist: false, rawId: "preview-onetime", todayYmd: ymd, oneTimeHour: 9, oneTimeMinute: 30),
+        PreviewTodayRow(id: "r-1", title: "团队例会", subtitle: "例行 · 每周一", isOneTime: false, isHourly: false, isProjectChecklist: false, rawId: "preview-recurring", todayYmd: ymd, oneTimeHour: nil, oneTimeMinute: nil),
+        PreviewTodayRow(id: "c-1", title: "需求清单示例", subtitle: "清单 · 1/3 子项 · 4/1 – 4/30", isOneTime: false, isHourly: false, isProjectChecklist: true, rawId: "preview-checklist", todayYmd: ymd, oneTimeHour: nil, oneTimeMinute: nil),
+        PreviewTodayRow(id: "h-1", title: "喝水", subtitle: "时段 · 每 1 小时 · 09:00–17:30 · 仅工作日", isOneTime: false, isHourly: true, isProjectChecklist: false, rawId: "preview-hourly", todayYmd: ymd, oneTimeHour: nil, oneTimeMinute: nil),
     ]
     static let nextUp = PreviewNextUp(
         title: "交周报",
-        detail: "2026-04-01 周三 · 提醒 10:00 · 每周三",
+        detail: "2026-04-01 10:00 (每周三)",
         isOneTime: false,
         isHourly: false,
         rawId: "preview-next",
         ymdForRecurring: "2026-04-01"
     )
 
+    /// 主条为例行「下次」时，副条展示「5 天后才开始」的清单（与主 App 小组件一致）。
+    static let nextUpChecklist = PreviewNextUp(
+        title: "需求清单开发",
+        detail: "2026-04-15 (0/2 子项 · 自 4/15 起) (清单)",
+        isOneTime: false,
+        isHourly: false,
+        rawId: "preview-checklist-next",
+        ymdForRecurring: "2026-04-15"
+    )
+
     static var entryFull: PreviewWidgetEntry {
-        PreviewWidgetEntry(date: Date(), rows: rows, nextUp: nextUp)
+        PreviewWidgetEntry(date: Date(), rows: rows, nextUp: nextUp, nextUpChecklist: nextUpChecklist)
     }
 
     static var entryEmptyToday: PreviewWidgetEntry {
-        PreviewWidgetEntry(date: Date(), rows: [], nextUp: nextUp)
+        PreviewWidgetEntry(date: Date(), rows: [], nextUp: nextUp, nextUpChecklist: nextUpChecklist)
     }
 }
 

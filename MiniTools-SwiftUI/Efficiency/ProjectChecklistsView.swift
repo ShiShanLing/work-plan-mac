@@ -4,39 +4,52 @@
 //
 //  滴答清单式布局：左侧多清单列表（色标、可删），右侧当前清单子任务；已完成子任务在下方分栏。
 //
+//  SwiftUI 阅读提示：顶层的 `body` 负责「左栏 List + 右栏详情」；右侧复杂交互在 `ProjectChecklistRightPanel`。
+//  `@State` = 仅本视图持有的临时 UI 状态；`@Environment(EfficiencyStore)` = 全局清单数据（读写走 `store`）。
+//
 
 import AppKit
 import SwiftUI
 
 /// 项目清单 Tab：左侧清单侧栏、右侧子任务与细节；支持拖拽排序与 macOS 拖移手柄。
 struct ProjectChecklistsView: View {
+    /// 全局数据：所有清单的增删改查、排序、持久化都通过它完成。
     @Environment(EfficiencyStore.self) private var store
 
+    /// 当前选中的清单 id；为 `nil` 时右栏显示占位提示。
     @State private var selectedProjectId: String?
-    /// 左侧列表当前悬停行的清单 id，用于浅色行背景。
+    /// 左侧列表当前鼠标悬停的那一行的清单 id，用来画淡色 hover 背景（与选中高亮不同）。
     @State private var sidebarHoveredProjectId: String?
+    /// 非 `nil` 时弹出「新建/编辑清单」sheet；关 sheet 时自动置回 `nil`。
     @State private var editDraft: ProjectChecklist?
+    /// 非 `nil` 时弹出「是否真的删除整个清单」确认框。
     @State private var pendingDeleteMain: ProjectChecklist?
+    /// 非 `nil` 时弹出「一次性提醒」编辑页（例如从清单右键「添加定时提醒」）。
     @State private var oneTimeReminderDraft: OneTimeReminder?
 
-    /// 左侧顺序：进行中在前，已整项完成的清单在后；组内按 `sidebarOrder`（可拖动），缺省同序时按旧规则。
+    /// 左侧 **进行中** 分组：未整项完成的清单；排序规则见闭包内注释。
     private var sidebarActive: [ProjectChecklist] {
         store.projectChecklists
             .filter { !$0.isCompleted }
             .sorted { a, b in
+                // 1) 用户拖动侧栏调整过的顺序（sidebarOrder 越小越靠上）
                 if a.sidebarOrder != b.sidebarOrder { return a.sidebarOrder < b.sidebarOrder }
+                // 2) 再按截止日期字符串升序；没截止日的甩到很后面（9999-12-31）
                 let ad = a.dueYmd ?? "9999-12-31"
                 let bd = b.dueYmd ?? "9999-12-31"
                 if ad != bd { return ad < bd }
+                // 3) 仍相同则按标题拼音/字典序
                 return a.title.localizedCompare(b.title) == .orderedAscending
             }
     }
 
+    /// 左侧 **已完成** 分组：整项勾过「清单已完成」的归档清单。
     private var sidebarDoneProjects: [ProjectChecklist] {
         store.projectChecklists
             .filter(\.isCompleted)
             .sorted { a, b in
                 if a.sidebarOrder != b.sidebarOrder { return a.sidebarOrder < b.sidebarOrder }
+                // 最近完成的排在上面（完成日或创建日字符串倒序）
                 let ad = a.completedAtYmd ?? a.createdAt
                 let bd = b.completedAtYmd ?? b.createdAt
                 if ad != bd { return ad > bd }
@@ -45,15 +58,23 @@ struct ProjectChecklistsView: View {
     }
 
     var body: some View {
-        // 页内左右分栏：用 HStack，不用 HSplitView/NSSplitView，避免左栏被系统当成窗口根侧栏。
+        // HStack：把子视图横着排成一行。这里组成「左栏 | 分割线 | 右栏」。
+        // alignment: .top — 两栏内容都从垂直方向顶部对齐（避免一栏变高时另一栏垂直居中难看）。
+        // spacing: 0 — 子视图之间默认不留缝；中间竖线用 Divider 自己占宽度。
         HStack(alignment: .top, spacing: 0) {
             sidebarColumn
+            // Divider：SwiftUI 提供的细分隔线（macOS 上为竖线），不手写 Rectangle。
             Divider()
+            // detailColumn：右侧详情；下面 .frame 约束其最少宽度并吃掉水平剩余空间。
             detailColumn
                 .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
         }
+
+        // 让这一整块占满父视图给的宽高（通常是窗口客户区），否则可能高度只和内容一样高。
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 窗口级背景色：用 AppKit 的 textBackgroundColor，随浅色/深色模式变化。
         .background(Color(nsColor: .textBackgroundColor))
+        // `item:` 为 nil 不弹；非 nil 时用该清单作为 sheet 内容（新建时 id 尚不在 store 里）。
         .sheet(item: $editDraft) { draft in
             let creating = !store.projectChecklists.contains(where: { $0.id == draft.id })
             ProjectChecklistEditSheet(draft: draft, isNew: creating) { saved in
@@ -63,6 +84,7 @@ struct ProjectChecklistsView: View {
         }
         .confirmationDialog(
             "删除清单",
+            // 用可选模型驱动对话框：`pendingDeleteMain != nil` 时出现；点按钮后在 set 里清掉。
             isPresented: Binding(
                 get: { pendingDeleteMain != nil },
                 set: { if !$0 { pendingDeleteMain = nil } }
@@ -73,6 +95,7 @@ struct ProjectChecklistsView: View {
                 if let p = pendingDeleteMain {
                     let deleted = p.id
                     store.deleteProjectChecklist(id: p.id)
+                    // 删的是当前选中项时，自动改选剩余第一条，避免右栏引用幽灵 id。
                     if selectedProjectId == deleted {
                         selectedProjectId = store.projectChecklists.first?.id
                     }
@@ -81,13 +104,16 @@ struct ProjectChecklistsView: View {
             }
             Button("取消", role: .cancel) { pendingDeleteMain = nil }
         } message: {
+            // 仅在 `pendingDeleteMain` 有值时展示具体清单名。
             if let p = pendingDeleteMain {
                 Text("确定删除「\(p.title.isEmpty ? "（无标题）" : p.title)」及其全部子任务？此操作不可撤销。")
             }
         }
         .onAppear {
+            // 首次出现：若没有选中或选中 id 已失效，默认选第一条清单。
             ensureSelection()
         }
+        // 清单增删后 id 列表会变：用拼接字符串当「变化信号」，避免选中指向已删 id。
         .onChange(of: store.projectChecklists.map(\.id).sorted().joined(separator: "\n")) { _, _ in
             ensureSelection()
         }
@@ -96,11 +122,13 @@ struct ProjectChecklistsView: View {
         }
     }
 
+    /// 保证 `selectedProjectId` 要么为 `nil` 且此时会用首条补齐，要么指向仍存在的清单 id。
     private func ensureSelection() {
         guard let s = selectedProjectId else {
             selectedProjectId = store.projectChecklists.first?.id
             return
         }
+        // 当前选中 id 在 store 里已经没了（例如删光了再恢复）：退回第一条。
         if !store.projectChecklists.contains(where: { $0.id == s }) {
             selectedProjectId = store.projectChecklists.first?.id
         }
@@ -111,14 +139,17 @@ struct ProjectChecklistsView: View {
         Binding(
             get: { selectedProjectId },
             set: { newId in
+                // 用户点中了某一行的明确 id：正常切换选中。
                 if let id = newId {
                     selectedProjectId = id
                     return
                 }
+                // List 试图把选中设为 nil（例如点空白）：若当前 id 仍有效则忽略，避免丢选中。
                 if let cur = selectedProjectId,
                    store.projectChecklists.contains(where: { $0.id == cur }) {
                     return
                 }
+                // 当前选中已无效：选第一条作为兜底。
                 selectedProjectId = store.projectChecklists.first?.id
             }
         )
@@ -127,14 +158,18 @@ struct ProjectChecklistsView: View {
     // MARK: 左侧
 
     private var sidebarColumn: some View {
+        // VStack：纵向堆叠。alignment: .leading — 子视图在横轴上左对齐；spacing: 0 — 行与行之间默认无额外间距（靠各自 padding）。
         VStack(alignment: .leading, spacing: 0) {
+            // 顶栏：标题 + 右侧「新建」按钮。
             HStack(alignment: .center) {
                 Text("需求清单")
                     .font(.title3.weight(.semibold))
-                Spacer(minLength: 8) 
+                // Spacer：弹性空白，把后面按钮顶到行尾；minLength: 8 — 标题与按钮至少隔 8pt。
+                Spacer(minLength: 8)
                 Button {
                     editDraft = ProjectChecklist.newDraft()
                 } label: {
+                    // Label：图标+文字的标准无障碍组合。
                     Label("新建", systemImage: "plus.circle.fill")
                 }
                 .buttonStyle(.borderedProminent)
@@ -147,17 +182,24 @@ struct ProjectChecklistsView: View {
             Text("左侧多清单（色标可选）；按住左键拖动整行可调顺序（行首为排序把手）。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                // fixedSize(horizontal: false, vertical: true) — 允许文字在竖直方向多行换行，不被父级压缩成一行省略。
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
 
+            // List：系统列表控件，支持选中行、分组 Section、行拖动排序（onMove）。selection: 绑定当前选中清单 id。
             List(selection: sidebarListSelection) {
+                // 没有进行中清单时不渲染该 Section，避免空分组占高度。
                 if !sidebarActive.isEmpty {
+                    // Section：列表里的分组，带独立 header。
                     Section {
+                        // ForEach：按数组 sidebarActive 渲染多行，每行是一条清单。
                         ForEach(sidebarActive) { p in
                             sidebarListRow(p)
+                                // .tag：把本行对应到 selection 里的 Optional(id)，List 才知道选中哪行。
                                 .tag(Optional(p.id))
                         }
+                        // onMove：用户拖动行顺序时回调；这里把新顺序写回 store。
                         .onMove { source, destination in
                             var ids = sidebarActive.map(\.id)
                             ids.move(fromOffsets: source, toOffset: destination)
@@ -169,6 +211,7 @@ struct ProjectChecklistsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                // 尚未有任何「整项完成」的清单时，不显示已完成分组。
                 if !sidebarDoneProjects.isEmpty {
                     Section {
                         ForEach(sidebarDoneProjects) { p in
@@ -181,6 +224,7 @@ struct ProjectChecklistsView: View {
                             store.applyChecklistSidebarOrder(completedGroup: true, orderedIds: ids)
                         }
                     } header: {
+                        // 分组标题里用 HStack 横排图标+文字。
                         HStack(spacing: 5) {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.caption2.weight(.semibold))
@@ -193,12 +237,18 @@ struct ProjectChecklistsView: View {
                     }
                 }
             }
+            // listStyle(.plain) — 扁平列表外观，行背景由我们自定义（见 listRowBackground）。
             .listStyle(.plain)
+            // scrollContentBackground(.hidden) — 去掉 List 默认底色，否则会盖住我们自己在 listRowBackground 画的圆角。
             .scrollContentBackground(.hidden)
+            // minHeight: 200 — 清单再少也保留一点可滚动区域视觉；maxHeight: .infinity — 在 VStack 里占满下面剩余高度。
             .frame(minHeight: 200, maxHeight: .infinity)
         }
+        // 左栏固定宽度 320pt，类似「侧栏」常数。
         .frame(width: 320)
+        // 竖直方向拉满窗口；alignment: .topLeading — 若将来有额外垂直空间，内容从左上角起算。
         .frame(maxHeight: .infinity, alignment: .topLeading)
+        // 侧栏整体背景：macOS 控件区色（与列表行底层色协调）。
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
@@ -212,6 +262,7 @@ struct ProjectChecklistsView: View {
     // 禁止：① `listRowBackground(Color.clear)` 同时又在行 content 上 `.background` 画同款（会双层，
     // 且透明缝会透出 NSTableView 的直角深色选中）；② 只把圆角画在 content 上而不铺满整格。
     //
+    /// 侧栏行「内层圆角填充」颜色：选中 > 悬停 > 透明。
     private func sidebarRowInnerHighlightFill(isSelected: Bool, isHovered: Bool) -> Color {
         if isSelected { return Color(nsColor: .selectedContentBackgroundColor) }
         if isHovered { return Color.primary.opacity(0.06) }
@@ -236,6 +287,7 @@ struct ProjectChecklistsView: View {
         let isHovered = sidebarHoveredProjectId == p.id
         // 选中交给 List(selection:) + .tag；行上不要用 Button / onTapGesture（会干扰 onMove）。
         // 行高亮只放在末尾的 `listRowBackground`，勿在此 HStack 上叠加背景（见 MARK「左侧清单行外观」）。
+        // HStack：行内横排「拖拽把手图标 | 主内容」。alignment: .top — 与多行标题时顶部对齐。
         return HStack(alignment: .top, spacing: 8) {
             Image(systemName: "line.3.horizontal")
                 .font(.caption)
@@ -244,24 +296,34 @@ struct ProjectChecklistsView: View {
                 .padding(.top, 3)
                 .accessibilityLabel("排序：可按住拖动整行")
             sidebarRowContent(p)
+                // 主内容吃掉行内剩余宽度，文字左对齐。
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 6)
         .padding(.horizontal, sidebarRowInnerHPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // 把整行合成一个无障碍元素，读屏时连续播报。
         .accessibilityElement(children: .combine)
+        // 当前行被 List 选中时附加「已选中」特征。
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // help：鼠标悬停时系统显示的 tooltip 文案。
         .help("单击选中；按住左键拖动整行调整顺序。")
         .onHover { hovering in
+            // 仅当指针在本行上时标记 hover id；离开且仍是本行 id 才清除，避免多行快速划过时串状态。
             if hovering {
                 sidebarHoveredProjectId = p.id
             } else if sidebarHoveredProjectId == p.id {
                 sidebarHoveredProjectId = nil
             }
         }
+        
+        // 隐藏系统默认行间横线（我们用圆角块背景）。
         .listRowSeparator(.hidden)
+        // 行在列表单元格内的内边距（略缩进，给圆角背景留边）。
         .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
+        // 自定义整行背景（选中/悬停/底层色），见 sidebarListRowBackground。
         .listRowBackground(sidebarListRowBackground(isSelected: isSelected, isHovered: isHovered))
+        // contextMenu：右键（或双指点按）弹出的菜单。
         .contextMenu {
             Button("添加定时提醒…") {
                 oneTimeReminderDraft = OneTimeReminder.draftFromChecklistHint(
@@ -281,7 +343,9 @@ struct ProjectChecklistsView: View {
     }
 
     private func sidebarRowContent(_ p: ProjectChecklist) -> some View {
+        // VStack：侧栏每一行的主内容竖排（上：标题行，下：日期摘要）。
         VStack(alignment: .leading, spacing: 5) {
+            // HStack：色标圆点 | 标题 | 右侧「子任务分数」徽章。
             HStack(alignment: .top, spacing: 8) {
                 checklistTagDot(tag: p.tag)
                 Text(p.title.isEmpty ? "（无标题）" : p.title)
@@ -293,7 +357,9 @@ struct ProjectChecklistsView: View {
                 Text(p.subtaskFractionBadge())
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    // monospacedDigit：数字等宽，避免 "3/10" 跳动。
                     .monospacedDigit()
+                    // fixedSize：这串徽章不要换行、不要被压缩宽度。
                     .fixedSize(horizontal: true, vertical: false)
             }
             Text(p.calendarDateSummary())
@@ -306,6 +372,7 @@ struct ProjectChecklistsView: View {
 
     @ViewBuilder
     private func checklistTagDot(tag: ProjectChecklistTag) -> some View {
+        // Circle + overlay：小圆点色标；无标签时透明圆+描边表示「空」。
         Circle()
             .fill(tag == .none ? Color.clear : tag.dotFill)
             .frame(width: 10, height: 10)
@@ -315,12 +382,13 @@ struct ProjectChecklistsView: View {
             )
             .accessibilityLabel(tag == .none ? "无色标" : "色标：\(tag.displayName)")
     }
-
     // MARK: 右侧
-
+    
     @ViewBuilder
     private var detailColumn: some View {
-        if let id = selectedProjectId, let p = store.projectChecklists.first(where: { $0.id == id }) {
+        // 同时满足：有选中 id（sid），且 store 里仍能根据 sid 找到该清单 → 显示右栏主面板。
+        if let sid = selectedProjectId, let p = store.projectChecklists.first(where: { $0.id == sid }) {
+            // ProjectChecklistRightPanel：右侧大块 UI（子任务 List、拖拽等）。
             ProjectChecklistRightPanel(
                 project: p,
                 onEditProject: { editDraft = $0 },
@@ -329,6 +397,8 @@ struct ProjectChecklistsView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
+            
+            // ContentUnavailableView：系统标准「空白状态」插图（标题 + SF Symbol + 说明文字）。
             ContentUnavailableView(
                 "选择一个清单",
                 systemImage: "sidebar.left",
@@ -352,12 +422,18 @@ private struct SubItemCardSizeKey: PreferenceKey {
 
 /// 子任务拖影栅格化专用：仅渲染卡片本身（不含 leadPad），输出固定 `cardW × cardH` 的位图。
 private struct SubItemDragCardRasterBody: View {
+    /// 要画进拖影的那条子任务快照。
     let sub: ProjectChecklistSubItem
+    /// 拖影位图宽度（与测得的卡片宽度一致）。
     let cardW: CGFloat
+    /// 拖影位图高度（与测得的卡片高度一致）。
     let cardH: CGFloat
+    /// `true` 表示在「已完成」分组里，样式更淡。
     let completedLook: Bool
+    /// 优先级对应 SF Symbol 名；无优先级时为 `nil`。
     let prioritySymbolName: String?
 
+    /// 拖影里最多展示几条细节预览，多出来的用「还有 n 条」表示，控制位图高度。
     private var detailPreviewCap: Int { 6 }
 
     var body: some View {
@@ -366,6 +442,7 @@ private struct SubItemDragCardRasterBody: View {
         let rawTitle = sub.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let detailSlice = Array(sub.details.prefix(detailPreviewCap))
         let detailExtra = sub.details.count - detailSlice.count
+        
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 4) {
@@ -461,8 +538,11 @@ private struct SubItemDragCardRasterBody: View {
 
 /// 细节行拖影栅格化：简洁水平布局（手柄 + 勾选 + 标题），与实际行内图标/文字水平对齐。
 private struct DetailDragCardRasterBody: View {
+    /// 细节标题原文（空则显示占位文案）。
     let title: String
+    /// 该细节是否已勾选完成（影响勾选图标样式）。
     let detailDone: Bool
+    /// 位图宽度，通常略小于子任务卡片宽。
     let rowW: CGFloat
 
     var body: some View {
@@ -492,14 +572,20 @@ private struct DetailDragCardRasterBody: View {
     }
 }
 
+/// 右侧主区域：展示**当前选中清单**的子任务列表、细节、拖拽排序与完成态。
 private struct ProjectChecklistRightPanel: View {
     @Environment(EfficiencyStore.self) private var store
 
+    /// 打开此面板时传入的清单快照；真实数据以 `live`（从 store 再读一次）为准，避免列表刷新滞后。
     let project: ProjectChecklist
+    /// 用户点「编辑清单」时回调，由上层把 `editDraft` 设为非 nil 弹出 sheet。
     var onEditProject: (ProjectChecklist) -> Void
+    /// 用户点「删除清单」时回调，由上层弹出确认框并执行删除。
     var onRequestDeleteProject: (ProjectChecklist) -> Void
+    /// 从清单/子任务上下文「添加定时提醒」时回调，上层绑定 `oneTimeReminderDraft` 弹出一次性提醒编辑页。
     var onComposeOneTimeReminder: (OneTimeReminder) -> Void
 
+    /// 底部「添加子任务」输入框的当前文字；回车或点「添加」后清空。
     @State private var newSubItemTitle = ""
     /// 各子任务「添加细节」输入框草稿，key 为子任务 id。
     @State private var newDetailTextBySubItemId: [String: String] = [:]
@@ -525,6 +611,7 @@ private struct ProjectChecklistRightPanel: View {
     /// 勾选「未完成」子任务为完成时，二次确认；确认后一并勾选所有细节。
     @State private var subItemCompleteConfirmationSubItemId: String?
 
+    /// 从 `store` 取到的**最新**清单；UI 应用 `live` 而不是过期的 `project` 常量，才能立刻反映保存结果。
     private var live: ProjectChecklist? {
         store.projectChecklists.first { $0.id == project.id }
     }
@@ -533,18 +620,22 @@ private struct ProjectChecklistRightPanel: View {
         live?.items.first { $0.id == id }
     }
 
+    /// 「进行中」区的子任务：未完成，按优先级与 listOrder 等规则排序。
     private var openItems: [ProjectChecklistSubItem] {
         (live?.items ?? []).filter { !$0.isCompleted }.sorted(by: ProjectChecklist.sortSubItemsOpen)
     }
 
+    /// 「已完成」区的子任务：已勾选完成，排序规则与进行中不同（通常最近完成在上）。
     private var doneItems: [ProjectChecklistSubItem] {
         (live?.items ?? []).filter(\.isCompleted).sorted(by: ProjectChecklist.sortSubItemsDone)
     }
 
     /// 右栏「进行中 / 已完成」与顶区 `headerBlock` 左右对齐（旧版行 inset 为 8）。
+    /// List 里各 Section 内容与顶栏标题的左右内边距（像素级对齐用）。
     private let subtaskSectionHorizontalInset: CGFloat = 20
 
     var body: some View {
+        // List 分段：① 顶栏 + 添加子任务 ② 进行中子任务 ③ 已完成子任务 ④ 底部说明文案
         List {
             Section {
                 headerBlock
@@ -566,6 +657,7 @@ private struct ProjectChecklistRightPanel: View {
             }
 
             Section {
+                // 没有未完成任务时给占位句，避免 Section 看起来「断了」。
                 if openItems.isEmpty {
                     Text("暂无未完成子任务")
                         .font(.subheadline)
@@ -579,6 +671,7 @@ private struct ProjectChecklistRightPanel: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                     }
+                    // 列表末尾透明 Drop 区：把子任务拖到「进行中」最后一项下面时可落在此。
                     if !openItems.isEmpty {
                         subItemDropAtEndOfSection(incompleteSection: true)
                             .listRowInsets(EdgeInsets(top: 0, leading: subtaskSectionHorizontalInset, bottom: 3, trailing: subtaskSectionHorizontalInset))
@@ -640,6 +733,7 @@ private struct ProjectChecklistRightPanel: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .onPreferenceChange(SubItemCardSizeKey.self) { subItemCardSizeById = $0 }
+        // 勾选未完成子任务的完成框时，若还有未完成细节，用 id 非 nil 弹出确认；确认后由 store 一次性勾完所有细节。
         .alert("确认将该子任务全部完成？", isPresented: Binding(
             get: { subItemCompleteConfirmationSubItemId != nil },
             set: { if !$0 { subItemCompleteConfirmationSubItemId = nil } }
@@ -657,10 +751,12 @@ private struct ProjectChecklistRightPanel: View {
         } message: {
             Text("将把该子任务及其下所有尚未完成的细节一并标记为已完成。")
         }
+        // 切换到另一个清单：取消未结束的确认框与拖移中间态，避免串单。
         .onChange(of: project.id) { _, _ in
             subItemCompleteConfirmationSubItemId = nil
             clearSubItemLiveDragTracking()
         }
+        // 离开本 Tab/视图时同样清理拖移状态，防止 State 残留在内存里影响下次进入。
         .onDisappear {
             clearSubItemLiveDragTracking()
         }
@@ -710,6 +806,7 @@ private struct ProjectChecklistRightPanel: View {
                 .buttonStyle(.bordered)
             }
 
+            // 仅当 store 里仍有该清单时显示整项完成开关（避免短暂不一致态）。
             if let p = live {
                 Toggle(isOn: Binding(
                     get: { p.isCompleted },
@@ -735,7 +832,6 @@ private struct ProjectChecklistRightPanel: View {
             }
         }
     }
-
     private func addSubItem() {
         guard var p = live else { return }
         let t = newSubItemTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -800,6 +896,7 @@ private struct ProjectChecklistRightPanel: View {
         (incompleteSection ? "subopen|" : "subdone|") + id
     }
 
+    
     private func parseSubItemDragImport(_ raw: String) -> (incompleteSection: Bool, id: String)? {
         if raw.hasPrefix("subopen|") {
             return (true, String(raw.dropFirst("subopen|".count)))
@@ -879,9 +976,11 @@ private struct ProjectChecklistRightPanel: View {
     }
 
     private func detailHandleDrop(_ items: [String], insertBeforeDetailId: String?, hostSubItemId: String) -> Bool {
+        // 解析拖放 payload；格式不对或空则视为未处理。
         guard let raw = items.first,
               let (fromSubId, dragDetailId) = parseDetailDragImport(raw)
         else { return false }
+        // 拖到自己正上方且前后子任务相同：无操作，避免闪动。
         if let b = insertBeforeDetailId, b == dragDetailId, fromSubId == hostSubItemId { return false }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             store.moveProjectChecklistSubItemDetail(
@@ -1040,6 +1139,7 @@ private struct ProjectChecklistRightPanel: View {
             .dropDestination(for: String.self) { items, _ in
                 subItemHandleDrop(items, insertBeforeId: nil, incompleteSection: incompleteSection)
             } isTargeted: { targeted in
+                // `incompleteSection` 区分进行中 / 已完成 两个分栏的「拖到末尾」热区，避免跨栏误排序。
                 if incompleteSection {
                     if targeted {
                         subItemTryLiveReorderToEnd(incompleteSection: true)
@@ -1203,7 +1303,9 @@ private struct ProjectChecklistRightPanel: View {
                     get: { subItemFromLive(item.id)?.isCompleted ?? false },
                     set: { v in
                         if v {
+                            // 勾选「完成」
                             if !completedLook {
+                                // 仍在「进行中」栏：若还有未完成细节 → 弹确认；否则直接完成并收起细节区。
                                 let liveSub = subItemFromLive(item.id) ?? item
                                 let allDetailsDone = liveSub.details.allSatisfy(\.isCompleted)
                                 if allDetailsDone {
@@ -1213,10 +1315,12 @@ private struct ProjectChecklistRightPanel: View {
                                     subItemCompleteConfirmationSubItemId = item.id
                                 }
                             } else {
+                                // 已在「已完成」栏又点完成：保持完成态并收起。
                                 store.setProjectChecklistSubItemCompleted(projectId: project.id, subItemId: item.id, completed: true)
                                 subItemDetailsExpanded[item.id] = false
                             }
                         } else {
+                            // 取消完成：子任务回到进行中，并清掉展开记忆（下次用默认展开规则）。
                             store.setProjectChecklistSubItemCompleted(projectId: project.id, subItemId: item.id, completed: false)
                             subItemDetailsExpanded.removeValue(forKey: item.id)
                         }
@@ -1396,6 +1500,7 @@ private struct ProjectChecklistRightPanel: View {
             }
             return subItemHandleDrop(items, insertBeforeId: item.id, incompleteSection: incompleteSection)
         } isTargeted: { targeted in
+            // 指针悬停在本行上方：把正在拖的子任务实时插到本行之前（「滴答」式腾位）；离开本行则清除针对本行的 target。
             if incompleteSection {
                 if targeted {
                     subItemTryLiveReorderInsertBefore(targetBeforeId: item.id, incompleteSection: true)
@@ -1558,13 +1663,20 @@ private struct ProjectChecklistRightPanel: View {
 /// `List` 行里逐字 `upsert` 会整表刷新导致不能输入；本地 `State` + 短防抖写盘。
 private struct LiveSubItemTitleField: View {
     @Environment(EfficiencyStore.self) private var store
+    /// 所属需求清单 id。
     let projectId: String
+    /// 所属子任务 id。
     let itemId: String
+    /// 是否在「已完成」分栏（影响字体粗细等展示）。
     let completedLook: Bool
+    /// 子任务勾选是否已完成（影响文字颜色）。
     let done: Bool
+    /// 传给 `.help()`：悬停时在 tooltip 里显示完整标题。
     let hoverHelp: String
 
+    /// 输入框绑定文字；与 Store 中的标题通过防抖 `persist` 同步。
     @State private var text: String
+    /// 防抖用：上一次安排的延迟保存 Task，新输入时会 cancel 掉旧的。
     @State private var saveWork: Task<Void, Never>?
 
     init(
@@ -1602,6 +1714,7 @@ private struct LiveSubItemTitleField: View {
             }
     }
 
+    /// 停止输入约 380ms 后再写盘，减少每一次按键都触发 `upsert`。
     private func scheduleSave(_ value: String) {
         saveWork?.cancel()
         saveWork = Task { @MainActor in
@@ -1611,6 +1724,7 @@ private struct LiveSubItemTitleField: View {
         }
     }
 
+    /// 回车或视图消失时立即保存，不等待防抖。
     private func flushSave() {
         saveWork?.cancel()
         saveWork = nil
@@ -1618,6 +1732,7 @@ private struct LiveSubItemTitleField: View {
     }
 
     private func persist(_ title: String) {
+        // 仅当标题真的变了才写盘，避免无谓刷新。
         guard var p = store.projectChecklists.first(where: { $0.id == projectId }),
               let i = p.items.firstIndex(where: { $0.id == itemId }),
               p.items[i].title != title
@@ -1627,12 +1742,14 @@ private struct LiveSubItemTitleField: View {
     }
 }
 
+/// 与 `LiveSubItemTitleField` 相同思路：细节标题本地编辑 + 防抖写入 `ProjectChecklistSubItemDetail.title`。
 private struct LiveDetailTitleField: View {
     @Environment(EfficiencyStore.self) private var store
     let projectId: String
     let subItemId: String
     let detailId: String
     let completedLook: Bool
+    /// 该细节是否已完成（控制文字颜色等）。
     let detailDone: Bool
     let hoverHelp: String
 
@@ -1704,16 +1821,22 @@ private struct LiveDetailTitleField: View {
 
 // MARK: - 新建 / 编辑标题与日期
 
+/// 新建或编辑清单本身的标题、色标、开始/截止日期；保存通过 `onSave` 交给上层写入 `EfficiencyStore`。
 private struct ProjectChecklistEditSheet: View {
     @Environment(\.dismiss) private var dismiss
 
+    /// 打开 sheet 时的清单草稿（新建时也是带新 id 的草稿对象）。
     let draft: ProjectChecklist
+    /// `true`：新建；`false`：编辑已有（影响标题文案）。
     let isNew: Bool
+    /// 用户点保存后调用，把编辑结果交回 `ProjectChecklistsView`。
     var onSave: (ProjectChecklist) -> Void
 
     @State private var title: String
     @State private var tag: ProjectChecklistTag
+    /// 是否启用「开始日」；关则保存时 `startYmd` 可清空。
     @State private var useStart: Bool
+    /// 是否启用「截止日」。
     @State private var useDue: Bool
     @State private var startDate: Date
     @State private var dueDate: Date

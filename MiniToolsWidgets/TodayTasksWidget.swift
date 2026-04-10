@@ -12,24 +12,26 @@ struct TodayEntry: TimelineEntry {
     let rows: [TodayRowData]
     /// 已计入与 `rows` 去重后的「下次待办」数据源；界面内会再次 `loadEntry` 刷新。
     let nextUp: NextUpTaskInfo?
+    /// 主条非清单时，单独预告「即将的需求清单」（与 `nextUp` 可同时存在）。
+    let nextUpChecklist: NextUpTaskInfo?
 }
 
 /// 加载 App Group JSON 并生成 `TodayEntry`；时间线策略为约每小时或午夜刷新。
 struct TodayProvider: TimelineProvider {
     func placeholder(in _: Context) -> TodayEntry {
-        TodayEntry(date: Date(), rows: [], nextUp: nil)
+        TodayEntry(date: Date(), rows: [], nextUp: nil, nextUpChecklist: nil)
     }
 
     func getSnapshot(in _: Context, completion: @escaping (TodayEntry) -> Void) {
         let now = Date()
         let loaded = TodayWidgetRowLoader.loadEntry(at: now)
-        completion(TodayEntry(date: now, rows: loaded.rows, nextUp: loaded.nextUp))
+        completion(TodayEntry(date: now, rows: loaded.rows, nextUp: loaded.nextUp, nextUpChecklist: loaded.nextUpChecklist))
     }
 
     func getTimeline(in _: Context, completion: @escaping (Timeline<TodayEntry>) -> Void) {
         let now = Date()
         let loaded = TodayWidgetRowLoader.loadEntry(at: now)
-        let entry = TodayEntry(date: now, rows: loaded.rows, nextUp: loaded.nextUp)
+        let entry = TodayEntry(date: now, rows: loaded.rows, nextUp: loaded.nextUp, nextUpChecklist: loaded.nextUpChecklist)
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
         let nextHour = cal.date(byAdding: .hour, value: 1, to: Date()) ?? Date().addingTimeInterval(3600)
@@ -51,7 +53,7 @@ struct TodayTasksWidgetView: View {
 
     var body: some View {
         // 与 TimelineProvider 写入的 `entry` 一致；预览画布也依赖 `entry` 中的样例数据，勿在此处再 load 磁盘。
-        let pack = (rows: entry.rows, nextUp: entry.nextUp)
+        let pack = (rows: entry.rows, nextUp: entry.nextUp, nextUpChecklist: entry.nextUpChecklist)
         widgetLayout(pack: pack)
             .padding(8)
             // 未包住 `Link` 的空白、标题、行内文字等区域点击时打开 App；行首圆圈仍为「完成」深链；「下次待办」为仅打开 App。
@@ -59,7 +61,7 @@ struct TodayTasksWidgetView: View {
     }
 
     @ViewBuilder
-    private func widgetLayout(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?)) -> some View {
+    private func widgetLayout(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?, nextUpChecklist: NextUpTaskInfo?)) -> some View {
         switch family {
         case .systemSmall:
             compactVerticalLayout(pack: pack)
@@ -72,7 +74,7 @@ struct TodayTasksWidgetView: View {
     }
 
     /// 小尺寸：纵向排列，并限制今日高度以便挤出「下次待办」。
-    private func compactVerticalLayout(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?)) -> some View {
+    private func compactVerticalLayout(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?, nextUpChecklist: NextUpTaskInfo?)) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("今日待办")
                 .font(sectionTitleFont)
@@ -97,7 +99,7 @@ struct TodayTasksWidgetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func twoColumnLayout(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?)) -> some View {
+    private func twoColumnLayout(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?, nextUpChecklist: NextUpTaskInfo?)) -> some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("今日待办")
@@ -125,13 +127,22 @@ struct TodayTasksWidgetView: View {
     }
 
     @ViewBuilder
-    private func nextUpSection(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?)) -> some View {
+    private func nextUpSection(pack: (rows: [TodayRowData], nextUp: NextUpTaskInfo?, nextUpChecklist: NextUpTaskInfo?)) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("下次待办")
                 .font(sectionTitleFont)
                 .foregroundStyle(.primary)
             if let next = pack.nextUp {
-                nextUpContent(next)
+                nextUpContent(next, showLink: pack.nextUpChecklist == nil)
+                if let pc = pack.nextUpChecklist {
+                    Divider().padding(.vertical, 2)
+                    Text("即将的需求清单")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    nextUpContent(pc, showLink: true)
+                }
+            } else if let pc = pack.nextUpChecklist {
+                nextUpContent(pc, showLink: true)
             } else {
                 Text("没其他任务")
                     .font(.caption)
@@ -146,7 +157,7 @@ struct TodayTasksWidgetView: View {
     }
 
     @ViewBuilder
-    private func nextUpContent(_ next: NextUpTaskInfo) -> some View {
+    private func nextUpContent(_ next: NextUpTaskInfo, showLink: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(next.title)
                 .font(family == .systemSmall ? .caption.weight(.semibold) : .subheadline.weight(.medium))
@@ -157,9 +168,11 @@ struct TodayTasksWidgetView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(family == .systemSmall ? 4 : 5)
-            Link("在 App 中查看", destination: WidgetDeepLink.openAppURL)
-                .font(.caption2)
-                .padding(.top, 2)
+            if showLink {
+                Link("在 App 中查看", destination: WidgetDeepLink.openAppURL)
+                    .font(.caption2)
+                    .padding(.top, 2)
+            }
         }
     }
 
@@ -227,7 +240,7 @@ struct TodayTasksWidget: Widget {
                 .containerBackground(.fill.secondary, for: .widget)
         }
         .configurationDisplayName("今日待办")
-        .description("中大尺寸为左右两栏：今日待办 / 下次待办；小尺寸为上下排列。点击今日待办圆圈可在 App 中标记完成；「下次待办」中可打开应用查看；点击其它区域打开应用。")
+        .description("中大尺寸为左右两栏：今日待办 / 下次待办；小尺寸为上下排列。今日待办含定时、例行、需求清单、时段；下次待办主条为时间上最早的一项，若主条不是需求清单，会另起一行「即将的需求清单」预告即将开始的清单。点击圆圈可在 App 中标记完成；点击其它区域打开应用。")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

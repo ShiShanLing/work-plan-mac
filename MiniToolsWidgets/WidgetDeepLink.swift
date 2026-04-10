@@ -32,6 +32,11 @@ enum WidgetDeepLink {
                 URLQueryItem(name: "id", value: row.rawId),
                 URLQueryItem(name: "ymd", value: row.todayYmd),
             ]
+        } else if row.isProjectChecklist {
+            c.queryItems = [
+                URLQueryItem(name: "type", value: "checklist"),
+                URLQueryItem(name: "id", value: row.rawId),
+            ]
         } else {
             c.queryItems = [
                 URLQueryItem(name: "type", value: "recurring"),
